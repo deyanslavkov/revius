@@ -1,0 +1,40 @@
+name: "Feature Request"
+description: "Suggest a new feature or improvement."
+title: "[feature] "
+labels: ["type: feature"]
+body:
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: "How important is this feature?"
+      options:
+        - MVP
+        - Must-have
+        - Nice-to-have
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: "What should this feature do? Why is it needed?"
+      placeholder: "A clear, concise summary..."
+    validations:
+      required: true
+
+  - type: textarea
+    id: criteria
+    attributes:
+      label: Acceptance Criteria
+      description: "What must be true for this feature to be complete?"
+      placeholder: "- Criteria 1\n- Criteria 2"
+    validations:
+      required: true
+
+  - type: textarea
+    id: notes
+    attributes:
+      label: Additional Notes
+      placeholder: "Links, screenshots, diagrams..."

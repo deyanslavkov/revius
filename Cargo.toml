@@ -4,3 +4,11 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+blake3 = "1.8.2"
+clap = { version = "4.5.53", features = ["derive"] }
+fastcdc = "3.2.1"
+memmap2 = "0.9.9"
+rusqlite = "0.37.0"
+sha2 = "0.10.9"
+similar = "2.7.0"
+zstd = "0.13.3"

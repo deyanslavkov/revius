@@ -1,0 +1,20 @@
+name: "Bug Report"
+description: "Report a bug or problem with the project."
+title: "[bug] "
+labels: ["bug"]
+body:
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: "Explain how to reproduce the issue."
+      placeholder: "1. What you did\n2. What happened\n3. What should have happened"
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, Messages, and Screenshots
+      description: "Paste relevant logs, screenshots, or other helpful context."
+      placeholder: "Drag files into this box or paste logs here…"
