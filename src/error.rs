@@ -8,6 +8,9 @@ pub enum ReviusError {
     #[error("Database Error: {0}")]
     Db(#[from] rusqlite::Error),
 
+    #[error("Serialization Error: {0}")]
+    Serialization(#[from] serde_json::Error),
+
     #[error("Configuration Error: {0}")]
     Config(String),
 
@@ -22,6 +25,9 @@ pub enum ReviusError {
 
     #[error("Repository not initialized. Run 'revius init' first.")]
     RepoNotFound,
+
+    #[error("Invalid reference: {0}")]
+    InvalidRef(String),
 
     #[error("General Error: {0}")]
     General(String),
