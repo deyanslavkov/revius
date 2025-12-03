@@ -47,7 +47,7 @@ pub fn init<P: AsRef<Path>>(root: P) -> Result<Repository, ReviusError> {
     let lock = RepoLock::acquire(lock_path.clone())?;
 
     // Open DB (this will create file if missing)
-    let conn = connection::open(&db_path)?;
+    let mut conn = connection::open(&db_path)?;
 
     // Apply schema (we keep schema.apply using Connection)
     schema::apply(&conn)?;
