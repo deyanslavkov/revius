@@ -90,7 +90,7 @@ impl RepoLock {
         {
             // use libc::kill(pid, 0)
             unsafe {
-                let pid_t = pid as libc::pid_t;
+                let pid_t = _pid as libc::pid_t;
                 let res = libc::kill(pid_t, 0);
                 if res == 0 {
                     return Ok(false); // process exists
