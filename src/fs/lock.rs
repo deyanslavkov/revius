@@ -81,7 +81,7 @@ impl RepoLock {
         }
 
         // If no pid found, consider stale
-        let pid = match pid_opt {
+        let _pid = match pid_opt {
             Some(p) => p,
             None => return Ok(true),
         };

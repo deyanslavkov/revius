@@ -4,7 +4,7 @@ use crate::fs::config as fs_config;
 use crate::fs::lock::RepoLock;
 use crate::db::{connection, schema};
 use crate::core::repository::state::Repository;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs;
 use std::fs::OpenOptions;
 use std::io::Write;

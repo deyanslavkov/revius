@@ -1,5 +1,5 @@
 use crate::error::ReviusError;
-use rusqlite::{Connection, OpenFlags};
+use rusqlite::Connection;
 use std::path::Path;
 
 /// Open or create repo.db at given path, set recommended PRAGMAs.

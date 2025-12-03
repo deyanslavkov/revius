@@ -3,6 +3,16 @@ name = "revius"
 version = "0.1.0"
 edition = "2024"
 
+# library crate
+[lib]
+name = "revius"
+path = "src/lib.rs"
+
+# binary crate
+[[bin]]
+name = "revius"
+path = "src/main.rs"
+
 [dependencies]
 
 rusqlite = { version = "0.37.0", features = ["bundled"] }

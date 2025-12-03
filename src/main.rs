@@ -1,15 +1,11 @@
-mod cli;
-mod commands;
-mod core;
-mod db;
-mod fs;
-
-use clap::Parser;
 use colored::Colorize;
-use cli::args::Cli;
-use commands::init as init_cmd;
+use revius:: cli;
+use revius::commands::init as init_cmd;
+use revius::error::ReviusError;
+
 
 fn main() {
+
     let cli = cli::args::parse_args();
 
     match &cli.command {
@@ -19,9 +15,8 @@ fn main() {
                 Ok(()) => std::process::exit(0),
                 Err(err) => {
                     // AlreadyInitialized is considered success in CLI surface
-                    use core::repository::init::InitErrorKind;
                     match err {
-                        crate::error::ReviusError::AlreadyInitialized(_) => {
+                        ReviusError::AlreadyInitialized(_) => {
                             println!("{}", format!("Repository already exists at {}", root_path.display()).yellow());
                             std::process::exit(0)
                         }

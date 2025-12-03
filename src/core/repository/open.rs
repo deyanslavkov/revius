@@ -3,8 +3,7 @@ use crate::fs::lock::RepoLock;
 use crate::db::connection;
 use crate::core::config::Config;
 use crate::core::repository::state::Repository;
-use rusqlite::params;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::fs;
 
 /// Open repository at root. Validates basic things and acquires lock.
