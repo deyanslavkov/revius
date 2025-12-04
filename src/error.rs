@@ -5,20 +5,23 @@ pub enum ReviusError {
     #[error("I/O Error: {0}")]
     Io(#[from] std::io::Error),
 
-    #[error("Database Error: {0}")]
+    #[error("DB Error: {0}")]
     Db(#[from] rusqlite::Error),
 
     #[error("Serialization Error: {0}")]
     Serialization(#[from] serde_json::Error),
 
-    #[error("Configuration Error: {0}")]
+    #[error("Config Error: {0}")]
     Config(String),
 
-    #[error("Integrity Error: {0}")]
-    Integrity(String),
+    #[error("Repository corrupted: {0}")]
+    Corrupt(String),
 
     #[error("Repository Locked: {0}")]
     Lock(String),
+
+    #[error("Repository already initialized: {0}")]
+    AlreadyInitialized(String),
 
     #[error("Zstd Compression Error: {0}")]
     Compression(String),
