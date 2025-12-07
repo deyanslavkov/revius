@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS Meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
--- Fields include: schema_version set to 1, repository_uuid set to a randomly generated uuid, and HEAD initially set to "ref: refs/heads/main".
+-- Fields include: schema_version set to 1, repository_uuid set to a randomly generated uuid, and HEAD initially set to "ref: refs/heads/main". Add these 3 fields in the schema.
 -- Any code that opens a repo must check schema and repository version. If repo version > code supported, program must exit with a message.
 
 CREATE TABLE IF NOT EXISTS Blobs (
@@ -244,6 +244,46 @@ CLI:
 Utils:
 - Only pure, stateless helper functions
 - NO: FS/DB/UI, Repository dependence
+
+# Dependencies
+
+Cargo.toml, as of now. Can be modified at need.
+
+```toml
+[package]
+name = "revius"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "revius"
+path = "src/lib.rs"
+
+[[bin]]
+name = "revius"
+path = "src/main.rs"
+
+[dependencies]
+
+rusqlite = { version = "0.37.0", features = ["bundled", "serde_json"] }
+clap = { version = "4.5.53", features = ["derive"] }
+thiserror = "2.0.17"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+toml = "0.9.8"
+
+blake3 = "1.8.2"
+zstd = "0.13.3"
+fastcdc = "3.2.1"
+ignore = "0.4.18"
+
+chrono = "0.4.42"
+uuid = { version = "1.19.0", features = ["v4"] }
+similar = "2.7.0"
+dirs = "6.0.0"
+colored = "3.0.0"
+comfy-table = "7.2.1"
+```
 
 # Miscellaneous rules
 
