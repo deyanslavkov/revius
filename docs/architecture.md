@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS Meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
--- Fields include: schema_version set to 1, repository_uuid set to a randomly generated uuid, and HEAD initially set to "ref: refs/heads/main".
+-- Fields include: schema_version set to 1, repository_uuid set to a randomly generated uuid, and HEAD initially set to "ref: refs/heads/main". Add these 3 fields in the schema.
 -- Any code that opens a repo must check schema and repository version. If repo version > code supported, program must exit with a message.
 
 CREATE TABLE IF NOT EXISTS Blobs (
@@ -75,6 +75,7 @@ CREATE TABLE IF NOT EXISTS Trees (
     CHECK(length(object_hash) = 32)
     -- The pure relational solution would be to have 3 tables (trees with a general id, and treefiles and treedirs pointing to trees), for clean FK enforcement.
     -- But that would make the algorithm unnecessarily complex and slow. Here integrity is managed by the hash system.
+    -- Note: The root folder itself is not stored as an entry, it's only the parent hash of all top-level elements.
 );
 
 CREATE TABLE IF NOT EXISTS Authors ( -- Author's name and email are set in an external configuration file.
@@ -146,16 +147,23 @@ src/
     main.rs -- Parses commands with clap, turning args into a variant of an enum; Constructs a Repository object (except for init); Dispatch to appropriate command module, passing Repository and respective struct
     lib.rs
     error.rs -- Defines the ReviusError enum
-    cli/ -- User interface - pure UI, responsible only for converting user input and output
-        mod.rs
-        args.rs -- Clap Command enum, defining CLI grammar; Each subcommand has its own parameters struct
-        ui.rs -- Printing helpers; Prevents hardcoding messages in other files - contains functions for displaying messages for any case needed by the system
     commands/ -- Application controllers; Receive their individual parameter struct, validate them, call the right core functions, and handle high-level orchestration - call core operations, handle success/failure, and call cli::ui to print results
         mod.rs
         init.rs
         add.rs
         commit.rs
         ... (one for each subcommand)
+    core/ -- Domain logic, the various algorithms which work with the other modules, also handling edge cases
+        models/
+            mod.rs
+            repository.rs -- Repo state, the context struct - DB connection, config struct, root path
+            objects.rs -- The DB models used throughout the system, one per each table
+            config.rs -- The various structures used for the config
+            serialization.rs -- Canonical binary serialization of the objects which need it (commit, tree...)
+            (anything else, if needed...)
+        init.rs -- Initialized a Revius repository at a specific path, if not existing
+        open.rs -- Opens the repo at a specific path (if it exists) and returns the Repository struct
+        config.rs -- Manages config structs and merging, validating, defaults...
     db/ -- Holds the SQL for the various DB operations that will be used by the other modules - one file per table, plus the connection and the schema; Internally works with SQL, externally with model structs; Receives the connection object
         mod.rs
         connection.rs
@@ -173,15 +181,15 @@ src/
     fs/ -- Handles filesystem operations
         mod.rs
         io.rs -- Basic I/O wrappers
+        paths.rs -- Provides functions to get absolute paths to various repo stuff from root path (or user configs)
         ignore.rs -- Ignore pattern matching (wrapper for ignore crate)
         config.rs -- For serializing TOML files
         walk.rs -- Walks dir trees, respecting ignore, expands user path list into flat list of files
-    core/ -- Domain logic, the various algorithms which work with the other modules, also handling edge cases
-        repository.rs -- Repo state, the context struct - DB connection, config struct, root path
-        models.rs -- The various structs used throughout the system, along with their canonical serialization for hashing
-        init.rs -- Initialized a Revius repository at a specific path, if not existing
-        open.rs -- Opens the repo at a specific path (if it exists) and returns the Repository struct
-        config.rs -- Manages config structs and merging, validating, defaults...
+        lock.rs -- Handles the lock (for future feature)
+    cli/ -- User interface - pure UI, responsible only for converting user input and output
+        mod.rs
+        args.rs -- Clap Command enum, defining CLI grammar; Each subcommand has its own parameters struct
+        ui.rs -- Printing helpers; Prevents hardcoding messages in other files - contains functions for displaying messages for any case needed by the system
     utils/ -- Pure general-purpose helper functions
         hash.rs -- BLAKE3 wrappers
         cdc.rs -- FastCDC wrappers
@@ -203,6 +211,7 @@ Commands:
 - Expand user-supplied path lists to file lists with ignoring via FS
 - Deconstruct arguments and calls the appropriate core function(s) with the relevant fields
 - Translate core results into human output with cli::ui
+- Pass errors up to main with Err()
 - Potentially building a "plan" of operations for the user to confirm before beginning (like in switch and any other destructive operations)
 - NO: heavy domain logic, DB operations
 
@@ -217,12 +226,13 @@ Core:
 - Transaction boundaries - core chooses which operations require transactions, commands don't manage them
 - Carries out the logic
 - Uses FS, DB, utils modules as needed
-- NO: UI, CLI args, user prompting, using external crates directly for which utils exist
+- NO: UI, CLI args, user prompting, using external crates directly for which utils exist, manually working with paths rather than using fs
 
 FS:
 - Raw filesystem reads/writes
 - Directory walking
 - Path normalization and utilities
+- Provides the actual absolute paths to various repo stuff based on root path (or gets user config)
 - Ignore rules file loading
 - Config file loading and serialization/deserialization
 - Lock file management (future)
@@ -245,6 +255,46 @@ Utils:
 - Only pure, stateless helper functions
 - NO: FS/DB/UI, Repository dependence
 
+# Dependencies
+
+Cargo.toml, as of now. Can be modified at need.
+
+```toml
+[package]
+name = "revius"
+version = "0.1.0"
+edition = "2024"
+
+[lib]
+name = "revius"
+path = "src/lib.rs"
+
+[[bin]]
+name = "revius"
+path = "src/main.rs"
+
+[dependencies]
+
+rusqlite = { version = "0.37.0", features = ["bundled", "serde_json"] }
+clap = { version = "4.5.53", features = ["derive"] }
+thiserror = "2.0.17"
+serde = { version = "1.0.228", features = ["derive"] }
+serde_json = "1.0.145"
+toml = "0.9.8"
+
+blake3 = "1.8.2"
+zstd = "0.13.3"
+fastcdc = "3.2.1"
+ignore = "0.4.18"
+
+chrono = "0.4.42"
+uuid = { version = "1.19.0", features = ["v4"] }
+similar = "2.7.0"
+dirs = "6.0.0"
+colored = "3.0.0"
+comfy-table = "7.2.1"
+```
+
 # Miscellaneous rules
 
 1. Modular code which separates concerns.
@@ -255,10 +305,16 @@ Utils:
 
 A Repository is a domain context containing:
 - Root path
-- Repo configuration struct (merged: global + local)
+- Repo configuration struct (loaded from core::config::load_config(root_path))
 - Database connection
 
 Creation of this object occurs only in core::init and core::open.
+
+The core::open function is called ONLY in commands, those which need it. It returns the repository (in a result). Internally, it calls an up traversal function, looking for the first parent containing a `.rvs` folder.
+```rust
+let repo = Repository::open(std::env::current_dir()?)?;
+```
+
 
 Lifecycle invariants:
 1. All paths are canonical absolute paths internally.
@@ -275,6 +331,51 @@ Rules for handling file paths:
 3. Ignore matching always uses repo-relative paths.
 4. .rvs directory is excluded automatically.
 5. FS module provides canonicalization/normalization utilities.
+6. FS module provides paths for the various things, so no hardcoding in other parts of the file.
+
+# Configuration system
+
+Revius uses 2 TOML configuration files:
+1. Repository-local config at `<repo>/.rvsconfig.toml`
+2. User-level config at `%APPDATA%\revius\config.toml` on Windows and `$HOME/.config/revius/config.toml` on Linux.
+These are independent sources that are merged into a Config struct at repository open/init time. If a field does not exist (or the whole config file does not exist), assume defaults, as listed in core/config_models.rs.
+
+RepoConfig:
+
+```toml
+[core]
+compression = true # Whether to compress new blobs
+compression_level = 3 # Zstd compression level (from -7 to 22 but not 0)
+chunking = true # Whether to chunk files using CDC or save them as one blob
+chunk_min = 2048 # FastCDC minimum chunk size
+chunk_avg = 8192 # FastCDC average chunk size
+chunk_max = 16384 # FastCDC maximum chunk size
+case_sensitive = true # Determines path comparison semantics inside the repository. If false, internal keys are normalized to lowercase, external paths retain original case
+```
+
+UserConfig:
+
+```toml
+[user]
+name = "None" # User's name to save in Authors table upon commit
+email = "none@example.com" # User's email to save in Authors table upon commit
+```
+
+At repository open time, the two configs are merged - missing fields use defaults.
+The merged struct:
+```rust
+struct Config {
+    compression: bool,
+    compression_level: u8,
+    chunking: bool,
+    chunk_min: usize,
+    chunk_avg: usize,
+    chunk_max: usize,
+    case_sensitive: bool,
+    user_name: String,
+    user_email: String,
+}
+```
 
 # Transactions
 
