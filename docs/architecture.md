@@ -181,6 +181,7 @@ src/
         models.rs -- The various structs used throughout the system, along with their canonical serialization for hashing
         init.rs -- Initialized a Revius repository at a specific path, if not existing
         open.rs -- Opens the repo at a specific path (if it exists) and returns the Repository struct
+        config.rs -- Manages config structs and merging, validating, defaults...
     utils/ -- Pure general-purpose helper functions
         hash.rs -- BLAKE3 wrappers
         cdc.rs -- FastCDC wrappers
