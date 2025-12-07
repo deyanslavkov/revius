@@ -1,13 +1,12 @@
-# Architecture Guidelines
-This document provides information about the project and defines the overall architecture of the Revius VCS.
-0. It gives some general info about the project.
-1. It provides a fixed reference so that code remains stable and consistent.
-2. It describes all modules, responsibilities, workflows, and design constraints.
-3. It gives rules for how new features, commands, modules, or DB changes must behave.
-4. It identifies architectural invariants that must never be violated.
+# Meta
 
-# System Overview
 Revius is a content-addressed, single-file repository, lightweight VCS, offering speed, safety and modernization through its implementation in Rust.
+
+This document defines the overall architecture of the Revius VCS.
+- A fixed reference so that code remains stable and consistent.
+- Description of all modules, responsibilities, workflows, and design constraints.
+- Rules for how new features, commands, modules, or DB changes must behave.
+- Architectural invariants that must never be violated.
 
 # Storage
 
@@ -244,6 +243,12 @@ CLI:
 Utils:
 - Only pure, stateless helper functions
 - NO: FS/DB/UI, Repository dependence
+
+# Miscellaneous rules
+
+1. Modular code which separates concerns.
+2. The OS, architecture, and any other environment shouldn't matter.
+3. Console output should be informative and nicely formatted.
 
 # Repository lifecycle
 
