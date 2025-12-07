@@ -15,30 +15,24 @@ path = "src/main.rs"
 
 [dependencies]
 
-rusqlite = { version = "0.37.0", features = ["bundled"] }
+rusqlite = { version = "0.37.0", features = ["bundled", "serde_json"] }
 
 clap = { version = "4.5.53", features = ["derive"] }
 
 thiserror = "2.0.17"
-anyhow = "1.0.97"
 
 serde = { version = "1.0.228", features = ["derive"] }
-serde_derive = "1.0.228"
 serde_json = "1.0.145"
 toml = "0.9.8"
 
 blake3 = "1.8.2"
 zstd = "0.13.3"
 fastcdc = "3.2.1"
-
 ignore = "0.4.18"
+
 chrono = "0.4.42"
 uuid = { version = "1.19.0", features = ["v4"] }
 similar = "2.7.0"
-diffy = "0.4.2"
 dirs = "6.0.0"
-memmap2 = "0.9.9"
 colored = "3.0.0"
 comfy-table = "7.2.1"
-time = "0.3.44"
-libc = "0.2.178"
