@@ -10,8 +10,9 @@ This document defines the full module interface (the public API) of the current 
 It aims to provide all needed knowledge for anyone contributing to the system, without having to view all internal code.
 It is updated manually and constantly as new things get implemented.
 
-For some files, only the exported things will be included. For others, the whole files will be presented, in order to give an example of the code.
+For some files, only the exported things will be included. For others, the whole files will be presented, in order to give an example of the code, and to know precisely how to implement new things in it.
 Everything added here is ALREADY implemented, so you can use it as the architecture rules allow.
+Feel free to update relevant files in db, fs, utils, cli, errors, or main with new things if needed, if it follows the architecture and makes the code more modular and concern-separated. Do not modify old things, only do the needed changes to add the new thing.
 
 ## Project Root
 
@@ -335,9 +336,9 @@ pub struct Config {
     pub compression: bool,
     pub compression_level: u8,
     pub chunking: bool,
-    pub chunk_min: usize,
-    pub chunk_avg: usize,
-    pub chunk_max: usize,
+    pub chunk_min: u64,
+    pub chunk_avg: u64,
+    pub chunk_max: u64,
     pub case_sensitive: bool,
     pub user_name: Option<String>,
     pub user_email: Option<String>,
