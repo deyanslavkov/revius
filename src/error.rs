@@ -20,10 +20,31 @@ pub enum ReviusError {
 
     #[error("Path error: {0}")]
     Path(String),
+
+    #[error("Usage error: {0}")]
+    Usage(String),
+
+    #[error("Permission denied: {0}")]
+    Permission(PathBuf),
+
+    #[error("Operation cancelled by user")]
+    Cancelled,
 }
 
 impl From<rusqlite::Error> for ReviusError {
     fn from(err: rusqlite::Error) -> Self {
         ReviusError::Db(err.to_string())
+    }
+}
+
+// Anything beyond code 1 is currently unused, but can be used in the future
+impl ReviusError {
+    pub fn exit_code(&self) -> i32 {
+        match self {
+            ReviusError::Usage(_) => 2,
+            ReviusError::Permission(_) => 126,
+            ReviusError::Cancelled => 130,
+            _ => 1,
+        }
     }
 }
