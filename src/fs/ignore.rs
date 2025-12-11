@@ -2,11 +2,7 @@ use crate::error::ReviusError;
 use ignore::WalkBuilder;
 use std::path::{Path, PathBuf};
 
-pub fn expand_paths(
-    paths: Vec<PathBuf>,
-    repo_root: &Path,
-    ignore_path: &Path,
-) -> Result<Vec<PathBuf>, ReviusError> {
+pub fn expand_paths(paths: Vec<PathBuf>, repo_root: &Path, ignore_path: &Path) -> Result<Vec<PathBuf>, ReviusError> {
     let mut result = Vec::new();
     let rvs_dir = repo_root.join(".rvs");
 

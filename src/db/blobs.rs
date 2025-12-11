@@ -1,13 +1,8 @@
 use crate::error::ReviusError;
 use rusqlite::Transaction;
 
-pub fn insert_blob(
-    tx: &Transaction,
-    hash: &[u8; 32],
-    data: &[u8],
-    compression: &str,
-    uncompressed_size: u64,
-) -> Result<(), ReviusError> {
+pub fn insert_blob(tx: &Transaction, hash: &[u8; 32], data: &[u8], compression: &str, uncompressed_size: u64)
+-> Result<(), ReviusError> {
     tx.execute(
         "INSERT OR IGNORE INTO Blobs (hash, data, compression, uncompressed_size) VALUES (?1, ?2, ?3, ?4)",
         rusqlite::params![&hash[..], data, compression, uncompressed_size as i64],

@@ -23,14 +23,8 @@ pub fn get_staged_file(tx: &Transaction, path: &str) -> Result<Option<StagedFile
     }
 }
 
-pub fn upsert_staging(
-    tx: &Transaction,
-    path: &str,
-    hash: &[u8; 32],
-    mode: u32,
-    size: u64,
-    modified_at: i64,
-) -> Result<(), ReviusError> {
+pub fn upsert_staging(tx: &Transaction, path: &str, hash: &[u8; 32], mode: u32, size: u64, modified_at: i64)
+-> Result<(), ReviusError> {
     tx.execute(
         "INSERT OR REPLACE INTO Staging (path, file_hash, mode, size, modified_at) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![path, &hash[..], mode as i64, size as i64, modified_at],
