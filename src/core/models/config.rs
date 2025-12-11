@@ -18,13 +18,13 @@ pub struct CoreConfig {
     pub chunking: bool,
     
     #[serde(default = "default_chunk_min")]
-    pub chunk_min: usize,
+    pub chunk_min: u64,
     
     #[serde(default = "default_chunk_avg")]
-    pub chunk_avg: usize,
+    pub chunk_avg: u64,
     
     #[serde(default = "default_chunk_max")]
-    pub chunk_max: usize,
+    pub chunk_max: u64,
     
     #[serde(default = "default_case_sensitive")]
     pub case_sensitive: bool,
@@ -82,9 +82,9 @@ pub struct Config {
     pub compression: bool,
     pub compression_level: u8,
     pub chunking: bool,
-    pub chunk_min: usize,
-    pub chunk_avg: usize,
-    pub chunk_max: usize,
+    pub chunk_min: u64,
+    pub chunk_avg: u64,
+    pub chunk_max: u64,
     pub case_sensitive: bool,
     pub user_name: Option<String>,
     pub user_email: Option<String>,
@@ -102,15 +102,15 @@ fn default_chunking() -> bool {
     true
 }
 
-fn default_chunk_min() -> usize {
+fn default_chunk_min() -> u64 {
     8192
 }
 
-fn default_chunk_avg() -> usize {
+fn default_chunk_avg() -> u64 {
     16384
 }
 
-fn default_chunk_max() -> usize {
+fn default_chunk_max() -> u64 {
     32768
 }
 

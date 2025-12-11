@@ -13,10 +13,19 @@ pub struct Cli {
 pub enum Commands {
     #[command(about = "Initialize a new Revius repository")]
     Init(InitArgs),
+
+    #[command(about = "Add file contents to the staging area")]
+    Add(AddArgs),
 }
 
 #[derive(Parser)]
 pub struct InitArgs {
     #[arg(default_value = ".", help = "Path where to initialize the repository")]
     pub path: PathBuf,
+}
+
+#[derive(Parser)]
+pub struct AddArgs {
+    #[arg(required = true, help = "Files or directories to add")]
+    pub paths: Vec<PathBuf>,
 }
