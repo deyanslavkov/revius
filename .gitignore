@@ -24,3 +24,9 @@ target
 # Added by cargo
 
 /target
+
+# Exclude the revius repo itself from being tracked (for now)
+
+/.rvs
+.rvsignore
+.rvsconfig.toml
