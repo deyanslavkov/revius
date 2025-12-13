@@ -1,0 +1,79 @@
+use crate::core::models::repository::Repository;
+use crate::db;
+use crate::error::ReviusError;
+use crate::fs;
+use crate::utils;
+use rusqlite::Transaction;
+use std::path::Path;
+
+/// Read a file from disk and compute its hash
+pub fn read_and_hash_file(path: &Path) -> Result<(Vec<u8>, [u8; 32]), ReviusError> {
+    let data = fs::io::read_file(path)
+        .map_err(|e| ReviusError::Io(path.to_path_buf(), e))?;
+    let hash = utils::hash::hash_bytes(&data);
+    Ok((data, hash))
+}
+
+/// Store a single blob in the database with optional compression
+/// Returns true if a new blob was created, false if it already existed
+fn store_blob(tx: &Transaction, path: &Path, chunk: &[u8], chunk_hash: &[u8; 32], compression_enabled: bool, compression_level: u8)
+-> Result<bool, ReviusError> {
+    if db::blobs::blob_exists(tx, chunk_hash)? {
+        return Ok(false);
+    }
+
+    let (data, compression) = if compression_enabled {
+        let compressed = utils::compression::compress(chunk, compression_level as i32)
+            .map_err(|e| {
+                ReviusError::Io(
+                    path.to_path_buf(),
+                    std::io::Error::new(std::io::ErrorKind::Other, e),
+                )
+            })?;
+        (compressed, format!("zstd{}", compression_level))
+    } else {
+        (chunk.to_vec(), "none".to_string())
+    };
+
+    db::blobs::insert_blob(tx, chunk_hash, &data, &compression, chunk.len() as u64)?;
+
+    Ok(true)
+}
+
+/// Create file object in database (with chunking and compression)
+/// Returns the number of new blobs created
+pub fn store_file_content(tx: &Transaction, path: &Path, file_hash: &[u8; 32], file_data: &[u8], repo: &Repository)
+-> Result<u64, ReviusError> {
+    if db::files::file_exists(tx, file_hash)? {
+        return Ok(0);
+    }
+
+    let chunks = if repo.config.chunking {
+        utils::cdc::chunk_data(
+            file_data,
+            repo.config.chunk_min,
+            repo.config.chunk_avg,
+            repo.config.chunk_max,
+        )
+    } else {
+        vec![&file_data[..]]
+    };
+
+    let mut recipe = Vec::new();
+    let mut blob_count = 0;
+
+    for chunk in &chunks {
+        let chunk_hash = utils::hash::hash_bytes(chunk);
+
+        let was_new = store_blob(tx, path, chunk, &chunk_hash, repo.config.compression, repo.config.compression_level)?;
+
+        if was_new {
+            blob_count += 1;
+        }
+        recipe.extend_from_slice(&chunk_hash);
+    }
+
+    db::files::insert_file(tx, file_hash, &recipe, chunks.len() as u64, file_data.len() as u64)?;
+
+    Ok(blob_count)
+}
