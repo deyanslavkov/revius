@@ -16,6 +16,9 @@ pub enum Commands {
 
     #[command(about = "Add file contents to the staging area")]
     Add(AddArgs),
+
+    #[command(about = "Record changes to the repository")]
+    Commit(CommitArgs),
 }
 
 #[derive(Parser)]
@@ -28,4 +31,10 @@ pub struct InitArgs {
 pub struct AddArgs {
     #[arg(required = true, help = "Files or directories to add")]
     pub paths: Vec<PathBuf>,
+}
+
+#[derive(Parser)]
+pub struct CommitArgs {
+    #[arg(short, long, help = "Commit message")]
+    pub message: String,
 }

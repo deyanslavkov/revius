@@ -37,7 +37,6 @@ impl From<rusqlite::Error> for ReviusError {
     }
 }
 
-// Anything beyond code 1 is currently unused, but can be used in the future
 impl ReviusError {
     pub fn exit_code(&self) -> i32 {
         match self {
