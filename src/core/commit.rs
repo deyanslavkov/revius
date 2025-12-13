@@ -1,0 +1,59 @@
+use crate::core::models::repository::Repository;
+use crate::core::models::serialization;
+use crate::db::{authors, commits, refs, staging};
+use crate::error::ReviusError;
+use crate::utils::hash;
+use rusqlite::Transaction;
+use crate::core;
+
+/// Main entry point for creating a commit
+pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usize), ReviusError> {
+    let tx = repo.conn.unchecked_transaction()?;
+
+    let staged_files = staging::get_all_staged(&tx)?;
+    if staged_files.is_empty() {
+        return Err(ReviusError::Usage("Nothing to commit (staging area is empty)".to_string()));
+    }
+
+    let files_count = staged_files.len();
+
+    let root = core::tree::build_tree_from_files(staged_files)?;
+
+    let tree_hash = core::tree::write_tree_to_db(&tx, &root)?;
+
+    let parent_hash = refs::resolve_head(&tx)?;
+
+    let user_name = repo.config.user_name.as_ref()
+        .ok_or_else(|| ReviusError::Config("User name not configured".to_string()))?;
+    let user_email = repo.config.user_email.as_ref()
+        .ok_or_else(|| ReviusError::Config("User email not configured".to_string()))?;
+    let author_id = authors::get_or_create_author(&tx, user_name, user_email)?;
+
+    let timestamp = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| ReviusError::Db(format!("System time error: {}", e)))?
+        .as_secs() as i64;
+
+    let commit_hash = create_commit_object(
+        &tx, &tree_hash, parent_hash.as_ref(), None, user_name, user_email, timestamp, message, author_id)?;
+
+    core::refs::update_head(&tx, &commit_hash)?;
+
+    tx.commit()?;
+
+    Ok((commit_hash, files_count))
+}
+
+/// Create and insert commit object (with hash)
+pub fn create_commit_object(
+    tx: &Transaction, tree_hash: &[u8; 32], parent_hash: Option<&[u8; 32]>, merge_parent_hash: Option<&[u8; 32]>,
+    author_name: &str, author_email: &str, timestamp: i64, message: &str, author_id: i64)
+-> Result<[u8; 32], ReviusError> {
+    let serialized = serialization::serialize_commit(tree_hash, parent_hash, merge_parent_hash, author_name, author_email, timestamp, message);
+
+    let commit_hash = hash::hash_bytes(&serialized);
+
+    commits::insert_commit(tx, &commit_hash, parent_hash, merge_parent_hash, tree_hash, message, author_id, timestamp)?;
+
+    Ok(commit_hash)
+}
