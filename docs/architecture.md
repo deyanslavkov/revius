@@ -32,6 +32,7 @@ Refs -> Commits -> Trees -> Files -> Blobs form a directed acyclic graph of cont
 Hashes are stable - identical content yields identical hash.
 Blobs, Files, Trees, Commits are immutable. If identical content appears twice, the system must not duplicate storage.
 Commits, trees, files and blobs are append-only. Only the garbage collector will prune unused objects.
+Important for deduplication: When inserting one of these objects, it might already exist. That's not a problem, that's how deduplication works.
 
 ## Full starter SQL schema
 
@@ -72,7 +73,8 @@ CREATE TABLE IF NOT EXISTS Trees (
     name TEXT NOT NULL, -- Name of the element
     object_hash BLOB NOT NULL, -- Points either to Files (hash) if it's a file, or Trees (parent_hash) recursively if it's a dir
     mode INTEGER NOT NULL, -- 100644 (file), 100755 (exec), 040000 (dir) - the Unix codes (used also to differentiate between files and dirs)
-    PRIMARY KEY (parent_hash, name),
+    is_dir INTEGER NOT NULL CHECK(is_dir IN (0, 1)), -- 0 = file, 1 = directory - a bit of info duplication with mode, but it's important for the compound PK
+    PRIMARY KEY (parent_hash, name, is_dir),
     CHECK(length(parent_hash) = 32),
     CHECK(length(object_hash) = 32)
     -- The pure relational solution would be to have 3 tables (trees with a general id, and treefiles and treedirs pointing to trees), for clean FK enforcement.
@@ -80,6 +82,7 @@ CREATE TABLE IF NOT EXISTS Trees (
     -- Note: The repo root folder itself is not stored as an entry, it's only the parent hash of all top-level elements. Commit's tree_hash points to the parent_hash of the top-level elements. For every object_hash that belongs to a folder, search this as a parent_hash and so on.
 );
 CREATE INDEX idx_trees_object ON Trees(object_hash);
+CREATE INDEX idx_trees_parent ON Trees(parent_hash);
 
 CREATE TABLE IF NOT EXISTS Authors ( -- Author's name and email are set in an external configuration file.
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -101,8 +104,6 @@ CREATE TABLE IF NOT EXISTS Commits (
 CREATE INDEX IF NOT EXISTS idx_commits_parent ON Commits(parent_hash);
 CREATE INDEX IF NOT EXISTS idx_commits_merge_parent ON Commits(merge_parent_hash);
 -- Optimizing the queries for commits with parent X, for visualizing the branches in a graph.
-
--- Might add a CommitParents(commit_hash, parent_hash) join table for commits with multiple parents, but that's for the future.
 
 CREATE TABLE IF NOT EXISTS Refs (
     path TEXT PRIMARY KEY,  -- "refs/heads/main", "refs/tags/v1"
@@ -146,7 +147,7 @@ CREATE TABLE IF NOT EXISTS Audit (
 
 Revius is structured into clear layers:
 ```text
-main.rs -> commands -> core -> {db -> rusqlite, fs -> std::fs, utils -> pure fns, cli::ui -> clap and UI stuff}
+main.rs -> commands -> core -> {db -> rusqlite, fs -> std::fs, utils -> pure functions, cli::ui -> clap and UI stuff}
 ```
 Each layer has strict responsibilities and must not reach down or across improperly. This enables consistency, safety, predictable code creation, and the DRY principle.
 
@@ -172,7 +173,7 @@ When implementing features, never hardcode logic that belongs in another module.
 Create functions in existing modules when:
 - db/: You need a new database operation (query, insert, update, delete)
 - fs/: You need filesystem operations or path manipulations
-- utils/: You need pure data transformations or algorithm wrappers
+- utils/: You need pure data transformations or algorithm wrappers, or you need to use utilities provided by the system (create wrappers for them here)
 - cli/ui: You need to print a new type of message
 - error: You need a new error variant
 
@@ -234,6 +235,7 @@ src/
         init.rs -- Initialized a Revius repository at a specific path, if not existing
         open.rs -- Opens the repo at a specific path (if it exists) and returns the Repository struct
         config.rs -- Manages config structs and merging, validating, defaults...
+        (and more...)
     db/ -- Holds the SQL for the various DB operations that will be used by the other modules - one file per table, plus the connection and the schema; Internally works with SQL, externally with parameters or model structs (whichever suits the use case); Receives the connection object (or as a transaction)
         mod.rs
         connection.rs
@@ -264,7 +266,6 @@ src/
         hash.rs -- BLAKE3 wrappers
         cdc.rs -- FastCDC wrappers
         compression.rs -- Zstd wrappers
-        ignore.rs -- Ignore wrappers (works with path and ignore string, not FS)
         (and others if needed...)
 ```
 
@@ -366,6 +367,7 @@ chrono = "0.4.42"
 uuid = { version = "1.19.0", features = ["v4"] }
 similar = "2.7.0"
 dirs = "6.0.0"
+hex = "0.4.3"
 colored = "3.0.0"
 comfy-table = "7.2.1"
 ```
@@ -378,7 +380,7 @@ comfy-table = "7.2.1"
 2. The OS, architecture, and any other environment shouldn't matter.
 3. Console output should be informative and nicely formatted.
 4. The individual functions must be generally short and modular.
-5. Impotant: While developing something (especially commands and core) feel free to create new things in db, fs, utils, cli, core as needed, so that the separation of concerns is strong. If part of the logic can be extracted and reused, it probably should.
+5. Important: While developing something (especially commands and core) feel free to create new things in db, fs, utils, cli, core as needed, so that the separation of concerns is strong. If part of the logic can be extracted and reused, it probably should.
 
 ## Repository lifecycle
 
@@ -408,7 +410,7 @@ Rules for handling file paths:
 2. Core converts absolute → repo-relative paths before storing in DB.
 3. Ignore matching always uses repo-relative paths.
 4. .rvs directory is excluded automatically.
-5. FS module provides canonicalization/normalization utilities.
+5. FS module provides canonicalization/normalization and other path and filesystem utilities.
 6. FS module provides paths for the various things, so no hardcoding in other parts of the file.
 
 ## Configuration system
@@ -449,8 +451,8 @@ struct Config {
     chunk_min: u64,
     chunk_avg: u64,
     chunk_max: u64,
-    user_name: String,
-    user_email: String,
+    user_name: Optional<String>,
+    user_email: Optional<String>,
 }
 ```
 
@@ -470,7 +472,7 @@ Uniform error strategy:
 2. Core returns errors upward without formatting them.
 3. Commands pass errors to main.
 4. Main handles the ReviusError by printing it (with UI, depending on the error).
-5. No unwrap, expect, or panics outside tests.
+5. Important: NO unwrap, expect, or panics outside tests.
 6. FS and DB operations add path/SQL context to all errors.
 
 All errors must include sufficient context for debugging:
@@ -490,7 +492,7 @@ Use error chaining with thiserror's `#[source]` attribute.
 
 Revius must be deterministic:
 1. Identical input produces identical commits, trees, and blob hashes.
-2. Tree entries sorted lexicographically.
+2. Tree entries sorted lexicographically (uses BTree).
 3. Canonical encoding is stable across:
     - OS
     - architecture
@@ -505,18 +507,15 @@ Blob hashing:
 
 File hashing:
 - Hash the uncompressed file directly
-- Recipe stores concatenated hashes in chunk order separately
+- Recipe stores concatenated blob hashes in chunk order separately
 - Hashing the pure file content is important for staging, too.
 
 Tree hashing:
-- Sort entries lexicographically by name (case-sensitive, byte-order)
-- For each entry, serialize: `mode || name || object_hash`
 - `tree_hash = BLAKE3(concat(all_serialized_entries))`
-- Format details in core/models/serialization.rs
+- Handled by `core/models/serialization.rs` (for entries)
 
 Commit hashing:
-- Canonical format: `tree <tree_hash>\nparent <parent_hash>\n[merge_parent <hash>\n]author <name> <email> <timestamp>\nmessage\n<message_text>`
-- Details in core/models/serialization.rs
+- Handled by `core/models/serialization.rs`
 
 ## Staging Area Semantics
 
@@ -546,12 +545,14 @@ Current commit resolution:
 1. Read HEAD from Meta
 2. If starts with "ref: ", parse branch name and look up in Refs table
 3. Otherwise, treat as direct commit hash
-4. Function: `core::refs::resolve_head(conn: &Connection) -> Result<Vec<u8>>`
+4. Functions:
+    - `db::refs::resolve_head(conn: &Connection) -> Result<Option<[u8; 32]>, ReviusError>`
+    - `core::refs::update_head(tx: &Transaction, commit_hash: &[u8; 32]) -> Result<(), ReviusError>` // Requires more complex logic, so is in core.
 
 Branch operations:
-- Create branch: INSERT INTO Refs, don't change HEAD
-- Switch branch: UPDATE Meta SET value = 'ref: refs/heads/<branch>'
-- Commit: UPDATE the commit_hash in Refs for current branch (or HEAD if detached)
+- Create branch: Insert into Refs, don't change HEAD
+- Switch branch: Update HEAD to `ref: refs/heads/<branch>`
+- Commit: Update the commit_hash in Refs for current branch (or HEAD if detached)
 
 First commit special case:
 - Before first commit, HEAD points to "ref: refs/heads/main" but that ref doesn't exist
