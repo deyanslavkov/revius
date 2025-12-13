@@ -4,3 +4,7 @@ pub mod meta;
 pub mod blobs;
 pub mod files;
 pub mod staging;
+pub mod trees;
+pub mod commits;
+pub mod authors;
+pub mod refs;
