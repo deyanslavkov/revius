@@ -64,3 +64,9 @@ pub fn make_repo_relative(absolute_path: &Path, repo_root: &Path) -> Result<Stri
         .ok_or_else(|| ReviusError::Path(format!("Path is not valid UTF-8: {}", absolute_path.display())))
         .map(|s| s.replace('\\', "/"))
 }
+
+pub fn split_path(path: &str) -> Vec<&str> {
+    path.split('/')
+        .filter(|s| !s.is_empty())
+        .collect()
+}

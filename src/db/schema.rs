@@ -86,7 +86,8 @@ fn create_trees_table(conn: &Connection) -> Result<(), ReviusError> {
             name TEXT NOT NULL,
             object_hash BLOB NOT NULL,
             mode INTEGER NOT NULL,
-            PRIMARY KEY (parent_hash, name),
+            is_dir INTEGER NOT NULL CHECK(is_dir IN (0, 1)),
+            PRIMARY KEY (parent_hash, name, is_dir),
             CHECK(length(parent_hash) = 32),
             CHECK(length(object_hash) = 32)
         )",
@@ -97,6 +98,11 @@ fn create_trees_table(conn: &Connection) -> Result<(), ReviusError> {
         "CREATE INDEX IF NOT EXISTS idx_trees_object ON Trees(object_hash)",
         [],
     ).map_err(|e| ReviusError::Db(format!("Failed to create index on Trees.object_hash: {}", e)))?;
+
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_trees_parent ON Trees(parent_hash)",
+        [],
+    ).map_err(|e| ReviusError::Db(format!("Failed to create index on Trees.parent_hash: {}", e)))?;
     
     Ok(())
 }
