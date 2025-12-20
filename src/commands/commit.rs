@@ -2,10 +2,11 @@ use crate::cli::args::CommitArgs;
 use crate::cli::ui;
 use crate::core;
 use crate::error::ReviusError;
+use crate::core::refs;
+use crate::fs::paths;
 
 pub fn run(args: CommitArgs) -> Result<(), ReviusError> {
-    let start_path = std::env::current_dir()
-        .map_err(|e| ReviusError::Io(std::path::PathBuf::from("."), e))?;
+    let start_path = paths::get_current_dir()?;
 
     let repo = core::open::open_repository(&start_path)?;
 

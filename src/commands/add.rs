@@ -3,23 +3,22 @@ use crate::cli::ui;
 use crate::core;
 use crate::error::ReviusError;
 use crate::fs;
-use std::path::PathBuf;
+use crate::fs::paths;
 
 pub fn run(args: AddArgs) -> Result<(), ReviusError> {
-    let current_dir = std::env::current_dir()
-        .map_err(|e| ReviusError::Io(PathBuf::from("."), e))?;
+    let current_dir = paths::get_current_dir()?;
 
     let repo = core::open::open_repository(&current_dir)?;
 
     let mut canonical_paths = Vec::new();
     for path in args.paths {
-        let canonical = fs::io::canonicalize(&path)
+        let canonical = fs::paths::canonicalize(&path)
             .map_err(|e| ReviusError::Io(path.clone(), e))?;
         canonical_paths.push(canonical);
     }
 
     let ignore_path = fs::paths::get_repo_ignore_path(&repo.root);
-    let file_paths = fs::ignore::expand_paths(canonical_paths, &repo.root, &ignore_path)?;
+    let file_paths = fs::walk::expand_paths(canonical_paths, &repo.root, &ignore_path)?;
 
     let results = core::add::stage_files(&repo, file_paths)?;
 
