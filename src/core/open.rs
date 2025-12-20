@@ -11,13 +11,7 @@ pub fn open_repository(start_path: &Path) -> Result<Repository, ReviusError> {
     
     let conn = db::connection::open_db(&db_path)?;
 
-    let version = db::meta::get_schema_version(&conn)?;
-    if version > 1 {
-        return Err(ReviusError::Db(format!(
-            "Repository version {} is too new for this client (max supported: 1)",
-            version
-        )));
-    }
+    db::meta::check_schema_version(&conn)?;
     
     let config = config::load_config(&repo_root)?;
     

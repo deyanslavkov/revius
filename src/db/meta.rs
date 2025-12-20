@@ -1,6 +1,34 @@
 use crate::error::ReviusError;
 use rusqlite::{Connection, Transaction, OptionalExtension};
 
+pub const CURRENT_SCHEMA_VERSION: i64 = 1;
+
+pub fn check_schema_version(conn: &Connection) -> Result<(), ReviusError> {
+    let version = get_schema_version(conn)?;
+    
+    if version > CURRENT_SCHEMA_VERSION {
+        return Err(ReviusError::Config(format!(
+            "Repository uses schema version {}, but this Revius version only supports up to {}.\n\
+             Please upgrade Revius to open this repository.",
+            version, CURRENT_SCHEMA_VERSION
+        )));
+    }
+    
+    if version < CURRENT_SCHEMA_VERSION {
+        return Err(ReviusError::Config(format!(
+            "Repository uses outdated schema version {} (current: {}).\n\
+             Automatic migrations not yet implemented.\n\
+             Options:\n\
+             1. Use an older Revius version (schema {})\n\
+             2. Recreate the repository\n\
+             3. Wait for migration support in future release",
+            version, CURRENT_SCHEMA_VERSION, version
+        )));
+    }
+    
+    Ok(())
+}
+
 pub fn get_schema_version(conn: &Connection) -> Result<i64, ReviusError> {
     let version_str: String = conn.query_row(
         "SELECT value FROM Meta WHERE key = 'schema_version'",
