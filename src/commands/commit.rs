@@ -21,7 +21,13 @@ pub fn run(args: CommitArgs) -> Result<(), ReviusError> {
         ));
     }
 
+    let head_state = refs::get_head_state(&repo.conn)?;
+
     let (commit_hash, files_changed) = core::commit::create_commit(&repo, &args.message)?;
+
+    if let refs::HeadState::Detached(commit_hash) = &head_state {
+        ui::print_detached_head_warning(commit_hash);
+    }
 
     ui::print_commit_success(&commit_hash, &args.message, files_changed);
 
