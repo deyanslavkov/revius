@@ -145,6 +145,7 @@ fn create_repository(path: &Path) -> Result<Repository, ReviusError>
 ### `core/open.rs`
 
 ```rust
+// Finds repo root, opens DB connection, loads config, and checks schema version
 fn open_repository(start_path: &Path) -> Result<Repository, ReviusError>
 ```
 
@@ -285,9 +286,6 @@ struct Repository {
     root: PathBuf,
     config: Config,
     conn: Connection,
-}
-impl Repository {
-    fn new(root: PathBuf, config: Config, conn: Connection) -> Self
 }
 ```
 
