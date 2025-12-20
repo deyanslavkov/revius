@@ -2,7 +2,6 @@ use crate::error::ReviusError;
 use crate::utils::hash;
 use rusqlite::{Connection, OptionalExtension, Transaction};
 
-/// Get a ref by path
 pub fn get_ref(conn: &Connection, path: &str) -> Result<Option<[u8; 32]>, ReviusError> {
     let result: Option<Vec<u8>> = conn
         .query_row(
@@ -22,13 +21,7 @@ pub fn get_ref(conn: &Connection, path: &str) -> Result<Option<[u8; 32]>, Revius
     }
 }
 
-/// Insert or update a ref
-pub fn upsert_ref(
-    tx: &Transaction,
-    path: &str,
-    ref_type: u8,
-    commit_hash: &[u8; 32],
-) -> Result<(), ReviusError> {
+pub fn upsert_ref(tx: &Transaction, path: &str, ref_type: u8, commit_hash: &[u8; 32]) -> Result<(), ReviusError> {
     tx.execute(
         "INSERT INTO Refs (path, ref_type, commit_hash) VALUES (?1, ?2, ?3)
          ON CONFLICT(path) DO UPDATE SET commit_hash = excluded.commit_hash",
@@ -39,7 +32,7 @@ pub fn upsert_ref(
     Ok(())
 }
 
-/// Update an existing ref
+/// Update an existing ref - use when you know the ref exists (it doesn't take ref type as a parameter)
 pub fn update_ref(tx: &Transaction, path: &str, commit_hash: &[u8; 32]) -> Result<(), ReviusError> {
     let rows = tx
         .execute(
@@ -55,8 +48,7 @@ pub fn update_ref(tx: &Transaction, path: &str, commit_hash: &[u8; 32]) -> Resul
     Ok(())
 }
 
-/// Resolve HEAD to a commit hash
-/// Returns None if HEAD points to non-existent ref (initial commit case)
+/// Resolve HEAD to a commit hash. Returns None if HEAD points to non-existent ref (initial commit case)
 pub fn resolve_head(conn: &Connection) -> Result<Option<[u8; 32]>, ReviusError> {
     // Get HEAD value from Meta
     let head_value: String = conn

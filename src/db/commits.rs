@@ -3,7 +3,6 @@ use crate::error::ReviusError;
 use crate::utils::hash;
 use rusqlite::{Connection, Transaction, OptionalExtension};
 
-/// Insert a commit into the database
 pub fn insert_commit(
     tx: &Transaction,
     hash: &[u8; 32],
@@ -32,7 +31,6 @@ pub fn insert_commit(
     Ok(())
 }
 
-/// Get a commit by hash
 pub fn get_commit(conn: &Connection, hash: &[u8; 32]) -> Result<Option<Commit>, ReviusError> {
     let mut stmt = conn
         .prepare("SELECT hash, parent_hash, merge_parent_hash, tree_hash, message, author_id, timestamp FROM Commits WHERE hash = ?1")
@@ -46,10 +44,14 @@ pub fn get_commit(conn: &Connection, hash: &[u8; 32]) -> Result<Option<Commit>, 
             let tree_vec: Vec<u8> = row.get(3)?;
 
             Ok(Commit {
-                hash: hash::vec_to_hash(&hash_vec).unwrap(),
-                parent_hash: parent_vec.and_then(|v| hash::vec_to_hash(&v).ok()),
-                merge_parent_hash: merge_parent_vec.and_then(|v| hash::vec_to_hash(&v).ok()),
-                tree_hash: hash::vec_to_hash(&tree_vec).unwrap(),
+                hash: hash::vec_to_hash(&hash_vec)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?,
+                parent_hash: parent_vec
+                    .and_then(|v| hash::vec_to_hash(&v).ok()),
+                merge_parent_hash: merge_parent_vec
+                    .and_then(|v| hash::vec_to_hash(&v).ok()),
+                tree_hash: hash::vec_to_hash(&tree_vec)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e))))?,
                 message: row.get(4)?,
                 author_id: row.get(5)?,
                 timestamp: row.get(6)?,
@@ -61,7 +63,6 @@ pub fn get_commit(conn: &Connection, hash: &[u8; 32]) -> Result<Option<Commit>, 
     Ok(result)
 }
 
-/// Check if a commit exists by hash
 pub fn commit_exists(conn: &Connection, hash: &[u8; 32]) -> Result<bool, ReviusError> {
     let exists: bool = conn
         .query_row(
