@@ -31,12 +31,6 @@ pub enum ReviusError {
     Cancelled,
 }
 
-impl From<rusqlite::Error> for ReviusError {
-    fn from(err: rusqlite::Error) -> Self {
-        ReviusError::Db(err.to_string())
-    }
-}
-
 impl ReviusError {
     pub fn exit_code(&self) -> i32 {
         match self {
