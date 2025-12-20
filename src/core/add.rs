@@ -54,14 +54,16 @@ pub fn stage_files(repo: &Repository, paths: Vec<PathBuf>)
 -> Result<Vec<(PathBuf, StageOutcome)>, ReviusError> {
     let mut results = Vec::new();
     
-    let tx = repo.conn.unchecked_transaction()?;
+    let tx = repo.conn.unchecked_transaction()
+        .map_err(|e| ReviusError::Db(format!("Failed to start transaction for staging: {}", e)))?;
 
     for path in paths {
         let result = stage_single_file(&tx, repo, &path)?;
         results.push(result);
     }
 
-    tx.commit()?;
+    tx.commit()
+        .map_err(|e| ReviusError::Db(format!("Failed to commit staging transaction: {}", e)))?;
 
     Ok(results)
 }
