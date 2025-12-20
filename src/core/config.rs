@@ -13,7 +13,6 @@ pub fn merge(repo: RepoConfig, user: Option<UserConfig>) -> Result<Config, Reviu
         chunk_min: repo.core.chunk_min,
         chunk_avg: repo.core.chunk_avg,
         chunk_max: repo.core.chunk_max,
-        case_sensitive: repo.core.case_sensitive,
         user_name: user_info.and_then(|u| u.name.clone()),
         user_email: user_info.and_then(|u| u.email.clone()),
     };
