@@ -47,23 +47,38 @@ pub fn build_tree_from_files(files: Vec<StagedFile>) -> Result<TreeNode, ReviusE
             let is_last = i == path_parts.len() - 1;
 
             if is_last {
-                // This is the file
+                // This is the file - insert it
                 if let TreeNode::Dir { children } = current {
                     children.insert(
                         part.to_string(),
                         TreeNode::new_file(file.file_hash, file.mode),
                     );
+                } else {
+                    // Path conflict
+                    let conflict_path = path_parts[..i].join("/");
+                    return Err(ReviusError::Path(format!(
+                        "Path conflict: '{}' is a file, cannot create '{}'",
+                        conflict_path,
+                        file.path
+                    )));
                 }
             } else {
-                // This is a directory
-                if let TreeNode::Dir { children } = current {
-                    children
-                        .entry(part.to_string())
-                        .or_insert_with(TreeNode::new_dir);
-                    
-                    current = children
-                        .get_mut(*part)
-                        .ok_or_else(|| ReviusError::Db(format!("Failed to navigate tree path: {}", part)))?;
+                // This is a directory - navigate into it
+                match current {
+                    TreeNode::Dir { children } => {
+                        current = children
+                            .entry(part.to_string())
+                            .or_insert_with(TreeNode::new_dir);
+                    }
+                    TreeNode::File { .. } => {
+                        // Path conflict
+                        let conflict_path = path_parts[..i].join("/");
+                        return Err(ReviusError::Path(format!(
+                            "Path conflict: '{}' is a file, cannot create '{}'",
+                            conflict_path,
+                            file.path
+                        )));
+                    }
                 }
             }
         }
@@ -94,10 +109,6 @@ pub fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], R
                 }
             }
 
-            // Sort entries by name (BTreeMap already sorted, but explicit for clarity)
-            entries.sort_by(|a, b| a.0.cmp(&b.0));
-
-            // Serialize and hash
             let mut serialized = Vec::new();
             for (name, hash, mode, _is_dir) in &entries {
                 serialized.extend_from_slice(&serialization::serialize_tree_entry(*mode, name, hash));
@@ -109,7 +120,6 @@ pub fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], R
                 return Ok(parent_hash);
             }
 
-            // Insert all entries into Trees table
             let tree_entries: Vec<TreeEntry> = entries
                 .iter()
                 .map(|(name, hash, mode, is_dir)| TreeEntry {

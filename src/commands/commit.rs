@@ -2,10 +2,11 @@ use crate::cli::args::CommitArgs;
 use crate::cli::ui;
 use crate::core;
 use crate::error::ReviusError;
+use crate::core::refs;
+use crate::fs::paths;
 
 pub fn run(args: CommitArgs) -> Result<(), ReviusError> {
-    let start_path = std::env::current_dir()
-        .map_err(|e| ReviusError::Io(std::path::PathBuf::from("."), e))?;
+    let start_path = paths::get_current_dir()?;
 
     let repo = core::open::open_repository(&start_path)?;
 
@@ -20,7 +21,13 @@ pub fn run(args: CommitArgs) -> Result<(), ReviusError> {
         ));
     }
 
+    let head_state = refs::get_head_state(&repo.conn)?;
+
     let (commit_hash, files_changed) = core::commit::create_commit(&repo, &args.message)?;
+
+    if let refs::HeadState::Detached(commit_hash) = &head_state {
+        ui::print_detached_head_warning(commit_hash);
+    }
 
     ui::print_commit_success(&commit_hash, &args.message, files_changed);
 

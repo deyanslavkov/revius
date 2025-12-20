@@ -1,5 +1,6 @@
 use colored::Colorize;
 use std::path::Path;
+use crate::utils;
 
 pub fn print_init_success(path: &Path) {
     println!(
@@ -39,7 +40,7 @@ pub fn print_commit_success(hash: &[u8; 32], message: &str, files_changed: usize
     let short_hash = hex::encode(&hash[..8]);
     let first_line = message.lines().next().unwrap_or("");
     println!("[{}] {}", short_hash, first_line);
-    println!("{} file(s) changed", files_changed);
+    println!("{} file(s) committed", files_changed);
 }
 
 pub fn print_nothing_to_commit() {
@@ -63,4 +64,18 @@ pub fn print_no_user_configured() {
     
     #[cfg(not(target_os = "windows"))]
     eprintln!("  Config location: ~/.config/revius/config.toml");
+}
+
+pub fn print_detached_head_warning(commit_hash: &[u8; 32]) {
+    let short_hash = utils::hash::hash_to_short_hex(&commit_hash);
+
+    eprintln!("Warning: You are in a detached HEAD state");
+    eprintln!();
+    eprintln!("You are currently not on any branch.");
+    eprintln!("If you commit now, the commit will not belong to any branch.");
+    eprintln!();
+    eprintln!("Current commit: {}", short_hash);
+    eprintln!();
+    eprintln!("To retain this commit, consider creating a branch:");
+    eprintln!("rvs branch <name>");
 }

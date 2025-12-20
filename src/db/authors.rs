@@ -2,12 +2,7 @@ use crate::error::ReviusError;
 use rusqlite::{OptionalExtension, Transaction};
 
 /// Get or create an author, returning their ID
-pub fn get_or_create_author(
-    tx: &Transaction,
-    name: &str,
-    email: &str,
-) -> Result<i64, ReviusError> {
-    // Try to find existing author
+pub fn get_or_create_author(tx: &Transaction, name: &str, email: &str) -> Result<i64, ReviusError> {
     let existing: Option<i64> = tx
         .query_row(
             "SELECT id FROM Authors WHERE name = ?1 AND email = ?2",
@@ -21,7 +16,6 @@ pub fn get_or_create_author(
         return Ok(id);
     }
 
-    // Create new author
     tx.execute(
         "INSERT INTO Authors (name, email) VALUES (?1, ?2)",
         rusqlite::params![name, email],

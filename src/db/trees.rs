@@ -2,7 +2,6 @@ use crate::core::models::objects::TreeEntry;
 use crate::error::ReviusError;
 use rusqlite::{Transaction, Connection};
 
-/// Check if a tree with given parent_hash already exists in the database
 pub fn tree_exists(conn: &Connection, parent_hash: &[u8; 32]) -> Result<bool, ReviusError> {
     let exists: bool = conn
         .query_row(
@@ -15,15 +14,7 @@ pub fn tree_exists(conn: &Connection, parent_hash: &[u8; 32]) -> Result<bool, Re
     Ok(exists)
 }
 
-/// Insert a single tree entry
-pub fn insert_tree_entry(
-    tx: &Transaction,
-    parent_hash: &[u8; 32],
-    name: &str,
-    object_hash: &[u8; 32],
-    mode: u32,
-    is_dir: bool,
-) -> Result<(), ReviusError> {
+pub fn insert_tree_entry(tx: &Transaction, parent_hash: &[u8; 32], name: &str, object_hash: &[u8; 32], mode: u32, is_dir: bool) -> Result<(), ReviusError> {
     tx.execute(
         "INSERT INTO Trees (parent_hash, name, object_hash, mode, is_dir) VALUES (?1, ?2, ?3, ?4, ?5)",
         rusqlite::params![parent_hash.as_slice(), name, object_hash.as_slice(), mode, is_dir as i32],
@@ -33,7 +24,7 @@ pub fn insert_tree_entry(
     Ok(())
 }
 
-/// Batch insert multiple tree entries efficiently
+/// Efficient batch insert by optimizing the query
 pub fn batch_insert_tree_entries(
     tx: &Transaction,
     entries: Vec<TreeEntry>,
