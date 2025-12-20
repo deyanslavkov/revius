@@ -304,6 +304,9 @@ fn serialize_commit(tree_hash: &[u8; 32], parent_hash: Option<&[u8; 32]>, merge_
 ### `db/meta.rs`
 
 ```rust
+const CURRENT_SCHEMA_VERSION: i64 = 1;
+/// Checks if current version in code mismatches that in DB
+fn check_schema_version(conn: &Connection) -> Result<(), ReviusError>
 fn get_schema_version(conn: &Connection) -> Result<i64, ReviusError>
 fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, ReviusError>
 fn set_meta(tx: &Transaction, key: &str, value: &str) -> Result<(), ReviusError>
