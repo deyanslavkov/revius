@@ -46,7 +46,7 @@ CREATE TABLE IF NOT EXISTS Meta (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
--- Fields include: schema_version set to 1, repository_uuid set to a randomly generated uuid, and HEAD initially set to "ref: refs/heads/main". Add these 3 fields in the schema.
+-- Fields include: schema_version set to 1, repository_uuid set to a randomly generated uuid, and HEAD initially set to "ref: refs/heads/main". In detached HEAD, it's a hex string of the commit hash. Add these 3 fields in the schema.
 -- Any code that opens a repo must check schema and repository version. If repo version > code supported, program must exit with a message.
 
 CREATE TABLE IF NOT EXISTS Blobs (
@@ -158,7 +158,7 @@ Rules:
 - `fs` may import: utils (no core, no db)
 - `utils` may import external crates only
 - `cli` modules: args imports clap, ui imports io stuff
-- All may import error, and any other needed common Rust imports for utilities
+- In addition, all modules may import error, and any other needed common Rust imports for utilities.
 
 Violation of these rules = architectural violation.
 
@@ -172,7 +172,7 @@ When implementing features, never hardcode logic that belongs in another module.
 
 Create functions in existing modules when:
 - db/: You need a new database operation (query, insert, update, delete)
-- fs/: You need filesystem operations or path manipulations
+- fs/: You need filesystem operations or path manipulations (anything touching the outer world)
 - utils/: You need pure data transformations or algorithm wrappers, or you need to use utilities provided by the system (create wrappers for them here)
 - cli/ui: You need to print a new type of message
 - error: You need a new error variant
@@ -192,9 +192,9 @@ Create files in core/ when:
 When writing code, ask yourself:
 
 1. Is this logic I'm about to write already a responsibility of db/, fs/, utils/, or cli/?
-   - YES -> Create a function there
+   - YES -> Create a function there instead and use it
 2. Is this logic I'm about to write likely to be needed elsewhere?
-   - YES -> Extract to appropriate module
+   - YES -> Extract to appropriate file/module
 3. Is my function getting long (>50 lines), too complex, or doing multiple things?
    - YES -> Break into smaller functions
 4. Am I repeating similar code within this file?
@@ -272,24 +272,25 @@ src/
 ## The logic split:
 Main:
 - Parses CLI args via clap and matches on the command enum
-- Opens repository for commands requiring it
-- Dispatches to the respective commands::X::run(), passing reference to repository and specific args struct
+- Dispatches to the respective commands::X::run(), passing the respective args struct
 - Handles top-level error printing
 - NO: domain logic, DB/FS operations, command-specific output
 
 Commands:
+- Opens the repository object
 - Validates parsed CLI parameters
-- Expand user-supplied path lists to file lists with ignoring via FS
+- Expand user-supplied path lists (if relevant) to file lists with ignoring via FS
 - Deconstruct arguments and calls the appropriate core function(s) with the Repository object and the relevant fields
 - Translate core results into human output with cli::ui
 - Pass errors up to main with Err()
+- Handle anything that may need printing for warnings (not errors) - check itself or take the result from core, whichever is better.
 - Potentially building a "plan" of operations for the user to confirm before beginning (like in switch and any other destructive operations)
-- NO: heavy domain logic, DB operations
+- NO: heavy domain logic, DB operations, anything that can be extracted in FS or utils modules and used from there instead
 
 Core:
 - All domain logic:
     - High-level repository operations: init, open, add logic, commit creation, tree building, ref updating, staging logic, status check, etc. - for each subcommand, everything not covered by the commands module
-    - Cross-cutting logic like opening and config management (and merging)
+    - Cross-cutting logic like opening and config management
 - All domain models and data types:
     - Repository struct (represents repository context - root path, config, DB connection)
     - Model for each table
@@ -324,6 +325,7 @@ CLI:
 
 Utils:
 - Only pure, stateless helper functions
+- For any small and repeating logic that's not too heavy and is stateless
 - NO: FS/DB/UI, Repository dependence
 
 # External dependencies (Cargo.toml)
@@ -372,7 +374,7 @@ colored = "3.0.0"
 comfy-table = "7.2.1"
 ```
 
-# Details about sppecifics
+# Details about specifics
 
 ## Miscellaneous rules
 
@@ -380,7 +382,8 @@ comfy-table = "7.2.1"
 2. The OS, architecture, and any other environment shouldn't matter.
 3. Console output should be informative and nicely formatted.
 4. The individual functions must be generally short and modular.
-5. Important: While developing something (especially commands and core) feel free to create new things in db, fs, utils, cli, core as needed, so that the separation of concerns is strong. If part of the logic can be extracted and reused, it probably should.
+5. For every new function implemented, add a docstring outlining everything needed to be known about the function that is not immediately obvious. Keep them short though, just not missing important details.
+6. Important: While developing something (especially commands and core) feel free to create new things in db, fs, utils, cli, core as needed, so that the separation of concerns is strong. If part of the logic can be extracted and reused, it probably should.
 
 ## Repository lifecycle
 
@@ -393,7 +396,7 @@ Creation of this object occurs only in core::init and core::open.
 
 The core::open function is called ONLY in commands, those which need it. It returns the repository (in a result). Internally, it calls an up traversal function, looking for the first parent containing a `.rvs` folder.
 ```rust
-let repo = Repository::open(std::env::current_dir()?)?;
+let repo = core::open::open_repository(paths::get_current_dir()?)?;
 ```
 
 Lifecycle invariants:
@@ -448,13 +451,15 @@ struct Config {
     compression: bool,
     compression_level: u8,
     chunking: bool,
-    chunk_min: u64,
-    chunk_avg: u64,
-    chunk_max: u64,
-    user_name: Optional<String>,
-    user_email: Optional<String>,
+    chunk_min: u32,
+    chunk_avg: u32,
+    chunk_max: u32,
+    user_name: Option<String>,
+    user_email: Option<String>,
 }
 ```
+
+Most commands actually don't need to know anything beyond the Config struct - repository opening handles the rest.
 
 ## Transactions
 
@@ -464,6 +469,7 @@ Rules:
 3. DB operations accept &Connection. Transaction objects dereference to Connection, allowing the same functions to work within or outside transactions.
 4. Transactions are short-lived: begin, perform writes, commit/rollback.
 5. If the command requires workspace changes, begin them only after the DB operations are done. If it fails, rollback the DB, too.
+6. Rollback is implicit when rusqlite encounters an error.
 
 ## Error handling
 
@@ -473,7 +479,7 @@ Uniform error strategy:
 3. Commands pass errors to main.
 4. Main handles the ReviusError by printing it (with UI, depending on the error).
 5. Important: NO unwrap, expect, or panics outside tests.
-6. FS and DB operations add path/SQL context to all errors.
+6. FS and DB operations add informative path/SQL context to all errors.
 
 All errors must include sufficient context for debugging:
 FS operations:
@@ -566,9 +572,10 @@ User input -> Absolute:
 - Handle ".", "..", "~", relative paths, symlinks, and Windows/Unix differences (like the separator)
 
 Absolute -> Repo-relative:
-- Before DB storage: `fs::paths::make_relative(absolute_path, repo_root)`
+- Before DB storage: `fs::paths::make_repo_relative(absolute_path, repo_root)`
 - Always use forward slashes (/) even on Windows
 - Never store paths starting with "/" or containing ".."
+- In DB, all paths are stored relative to repo root.
 
 Repo-relative -> Absolute:
 - For FS operations: `fs::paths::to_absolute(relative_path, repo_root)`
