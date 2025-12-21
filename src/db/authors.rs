@@ -1,5 +1,5 @@
 use crate::error::ReviusError;
-use rusqlite::{OptionalExtension, Transaction};
+use rusqlite::{OptionalExtension, Connection, Transaction};
 
 /// Get or create an author, returning their ID
 pub fn get_or_create_author(tx: &Transaction, name: &str, email: &str) -> Result<i64, ReviusError> {
@@ -24,4 +24,23 @@ pub fn get_or_create_author(tx: &Transaction, name: &str, email: &str) -> Result
 
     let id = tx.last_insert_rowid();
     Ok(id)
+}
+
+/// Get author details by ID. Returns (name, email)
+pub fn get_author_by_id(conn: &Connection, author_id: i64) -> Result<(String, String), ReviusError> {
+    let mut stmt = conn
+        .prepare("SELECT name, email FROM Authors WHERE id = ?")
+        .map_err(|e| {
+            ReviusError::Db(format!("Failed to prepare query for Authors (id={}): {}", author_id, e))
+        })?;
+
+    let result = stmt
+        .query_row([author_id], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        })
+        .map_err(|e| {
+            ReviusError::Db(format!("Failed to get author with id={}: {}", author_id, e))
+        })?;
+
+    Ok(result)
 }

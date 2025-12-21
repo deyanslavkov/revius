@@ -80,3 +80,24 @@ impl StatusInfo {
             || !self.staged_deleted.is_empty()
     }
 }
+
+#[derive(Debug)]
+pub struct LogOptions {
+    pub limit: Option<usize>,
+    pub show_graph: bool,
+    pub oneline: bool,
+    pub first_parent: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommitInfo {
+    pub hash: [u8; 32],
+    pub parent_hash: Option<[u8; 32]>,
+    pub merge_parent_hash: Option<[u8; 32]>,
+    pub tree_hash: [u8; 32],
+    pub author_name: String,
+    pub author_email: String,
+    pub timestamp: i64,
+    pub message: String,
+    pub refs: Vec<String>, // Branch/tag names pointing to this commit
+}

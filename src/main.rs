@@ -11,6 +11,7 @@ fn main() {
         Commands::Add(args) => commands::add::run(args),
         Commands::Commit(args) => commands::commit::run(args),
         Commands::Status(args) => commands::status::run(args),
+        Commands::Log(args) => commands::log::run(args),
     };
 
     if let Err(e) = result {
