@@ -69,3 +69,29 @@ pub fn resolve_head(conn: &Connection) -> Result<Option<[u8; 32]>, ReviusError> 
         Ok(Some(hash::vec_to_hash(&hash_bytes).map_err(|e| ReviusError::Db(e))?))
     }
 }
+
+/// Get all refs (branches and tags) with their commit hashes. Returns Vec<(ref_path, commit_hash)>
+pub fn get_all_refs(conn: &Connection) -> Result<Vec<(String, [u8; 32])>, ReviusError> {
+    let mut stmt = conn
+        .prepare("SELECT path, commit_hash FROM Refs")
+        .map_err(|e| ReviusError::Db(format!("Failed to prepare query for Refs: {}", e)))?;
+
+    let refs = stmt
+        .query_map([], |row| {
+            let path: String = row.get(0)?;
+            let hash_vec: Vec<u8> = row.get(1)?;
+            Ok((path, hash_vec))
+        })
+        .map_err(|e| ReviusError::Db(format!("Failed to query Refs: {}", e)))?
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| ReviusError::Db(format!("Failed to collect Refs results: {}", e)))?;
+
+    let mut result = Vec::new();
+    for (path, hash_vec) in refs {
+        let hash = hash::vec_to_hash(&hash_vec)
+            .map_err(|e| ReviusError::Db(format!("Invalid hash in Refs for {}: {}", path, e)))?;
+        result.push((path, hash));
+    }
+
+    Ok(result)
+}
