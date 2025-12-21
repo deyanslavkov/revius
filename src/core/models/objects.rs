@@ -49,3 +49,34 @@ pub struct Author {
     pub name: String,
     pub email: String,
 }
+
+/// Complete status information comparing HEAD, staging, and working directory
+#[derive(Debug)]
+pub struct StatusInfo {
+    pub branch_name: Option<String>,
+    pub detached_commit: Option<[u8; 32]>,
+    pub staged_new: Vec<String>,
+    pub staged_modified: Vec<String>,
+    pub staged_deleted: Vec<String>,
+    pub unstaged_modified: Vec<String>,
+    pub unstaged_deleted: Vec<String>,
+    pub untracked: Vec<String>,
+}
+
+/// Helper impl for usage in status display
+impl StatusInfo {
+    pub fn has_changes(&self) -> bool {
+        !self.staged_new.is_empty()
+            || !self.staged_modified.is_empty()
+            || !self.staged_deleted.is_empty()
+            || !self.unstaged_modified.is_empty()
+            || !self.unstaged_deleted.is_empty()
+            || !self.untracked.is_empty()
+    }
+
+    pub fn has_staged_changes(&self) -> bool {
+        !self.staged_new.is_empty()
+            || !self.staged_modified.is_empty()
+            || !self.staged_deleted.is_empty()
+    }
+}
