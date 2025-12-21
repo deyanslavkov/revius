@@ -22,6 +22,9 @@ pub enum Commands {
 
     #[command(about = "Show the working tree status")]
     Status(StatusArgs),
+
+    #[command(about = "Show commit history")]
+    Log(LogArgs),
 }
 
 #[derive(Parser)]
@@ -45,4 +48,19 @@ pub struct CommitArgs {
 #[derive(Parser)]
 pub struct StatusArgs {
     // Currently no arguments, but can add --short, --verbose, etc. later
+}
+
+#[derive(Parser)]
+pub struct LogArgs {
+    #[arg(short = 'n', long, help = "Limit number of commits to show")]
+    pub limit: Option<usize>,
+    
+    #[arg(long, help = "Show commit graph with ASCII art")]
+    pub graph: bool,
+    
+    #[arg(long, help = "Show each commit on a single line")]
+    pub oneline: bool,
+    
+    #[arg(long, help = "Show only the first parent in merge commits")]
+    pub first_parent: bool,
 }
