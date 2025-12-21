@@ -1,6 +1,8 @@
 use colored::Colorize;
 use std::path::Path;
 use crate::utils;
+use crate::core::models::objects::StatusInfo;
+use crate::utils::hash::hash_to_short_hex;
 
 pub fn print_init_success(path: &Path) {
     println!(
@@ -78,4 +80,70 @@ pub fn print_detached_head_warning(commit_hash: &[u8; 32]) {
     eprintln!();
     eprintln!("To retain this commit, consider creating a branch:");
     eprintln!("rvs branch <name>");
+}
+
+pub fn print_status(status: &StatusInfo) {
+    if let Some(ref branch) = status.branch_name {
+        println!("On branch {}", branch);
+    } else if let Some(commit_hash) = status.detached_commit {
+        println!("HEAD detached at {}", hash_to_short_hex(&commit_hash));
+    }
+
+    println!();
+
+    if status.has_staged_changes() {
+        println!("Changes to be committed:");
+        println!("  (use \"rvs reset <file>...\" to unstage)");
+        println!();
+
+        for path in &status.staged_new {
+            println!("        \x1b[32mnew file:   {}\x1b[0m", path);
+        }
+        for path in &status.staged_modified {
+            println!("        \x1b[32mmodified:   {}\x1b[0m", path);
+        }
+        for path in &status.staged_deleted {
+            println!("        \x1b[32mdeleted:    {}\x1b[0m", path);
+        }
+
+        println!();
+    }
+
+    if !status.unstaged_modified.is_empty() || !status.unstaged_deleted.is_empty() {
+        println!("Changes not staged for commit:");
+        println!("  (use \"rvs add <file>...\" to update what will be committed)");
+        println!("  (use \"rvs restore <file>...\" to discard changes in working directory)");
+        println!();
+
+        for path in &status.unstaged_modified {
+            println!("        \x1b[31mmodified:   {}\x1b[0m", path);
+        }
+        for path in &status.unstaged_deleted {
+            println!("        \x1b[31mdeleted:    {}\x1b[0m", path);
+        }
+
+        println!();
+    }
+
+    if !status.untracked.is_empty() {
+        println!("Untracked files:");
+        println!("  (use \"rvs add <file>...\" to include in what will be committed)");
+        println!();
+
+        for path in &status.untracked {
+            println!("        \x1b[31m{}\x1b[0m", path);
+        }
+
+        println!();
+    }
+
+    if !status.has_changes() {
+        println!("nothing to commit, working tree clean");
+    } else if !status.has_staged_changes() {
+        if !status.untracked.is_empty() {
+            println!("no changes added to commit (use \"rvs add\" and/or \"rvs commit\")");
+        } else {
+            println!("no changes added to commit (use \"rvs add\")");
+        }
+    }
 }
