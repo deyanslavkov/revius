@@ -35,6 +35,7 @@ fn main() {
         Commands::Add(args) => commands::add::run(args),
         Commands::Commit(args) => commands::commit::run(args),
         Commands::Status(args) => commands::status::run(args),
+        Commands::Log(args) => commands::log::run(args),
     };
 
     if let Err(e) = result {
@@ -137,6 +138,22 @@ fn run(_args: StatusArgs) -> Result<(), ReviusError> {
     let repo = core::open::open_repository(&current_dir)?;
     let status_info = core::status::get_status_info(&repo)?;
     ui::print_status(&status_info);
+    Ok(())
+}
+```
+
+### `commands/log.rs`
+
+```rust
+fn run(args: LogArgs) -> Result<(), ReviusError> {
+    // (...)
+    let options = LogOptions { /*(...)*/ };
+    let commits = core::log::get_commit_history(&repo.conn, &options)?;
+    if commits.is_empty() {
+        ui::print_no_commits();
+        return Ok(());
+    }
+    ui::print_log(&commits, &options);
     Ok(())
 }
 ```
@@ -246,6 +263,13 @@ fn get_staged_files(conn: &rusqlite::Connection) -> Result<BTreeMap<String, [u8;
 fn get_workdir_files(repo: &Repository) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
 ```
 
+### `core/log.rs`
+
+```rust
+/// Get commit history starting from HEAD, traversing the parent chain
+fn get_commit_history(conn: &Connection, options: &LogOptions) -> Result<Vec<CommitInfo>, ReviusError>
+```
+
 ## core/models
 
 ### `core/models/config.rs`
@@ -317,6 +341,25 @@ struct StatusInfo {
     unstaged_modified: Vec<String>,
     unstaged_deleted: Vec<String>,
     untracked: Vec<String>,
+}
+#[derive(Debug)]
+struct LogOptions {
+    limit: Option<usize>,
+    show_graph: bool,
+    oneline: bool,
+    first_parent: bool,
+}
+#[derive(Debug, Clone)]
+struct CommitInfo {
+    hash: [u8; 32],
+    parent_hash: Option<[u8; 32]>,
+    merge_parent_hash: Option<[u8; 32]>,
+    tree_hash: [u8; 32],
+    author_name: String,
+    author_email: String,
+    timestamp: i64,
+    message: String,
+    refs: Vec<String>, // Branch/tag names pointing to this commit
 }
 ```
 
@@ -399,6 +442,8 @@ fn commit_exists(conn: &Connection, hash: &[u8; 32]) -> Result<bool, ReviusError
 ```rust
 /// Get or create an author, returning their ID
 fn get_or_create_author(tx: &Transaction, name: &str, email: &str) -> Result<i64, ReviusError>
+/// Get author details by ID. Returns (name, email)
+fn get_author_by_id(conn: &Connection, author_id: i64) -> Result<(String, String), ReviusError>
 ```
 
 ### `db/refs.rs`
@@ -410,6 +455,8 @@ fn upsert_ref(tx: &Transaction, path: &str, ref_type: u8, commit_hash: &[u8; 32]
 fn update_ref(tx: &Transaction, path: &str, commit_hash: &[u8; 32]) -> Result<(), ReviusError>
 /// Resolve HEAD to a commit hash. Returns None if HEAD points to non-existent ref (initial commit case)
 fn resolve_head(conn: &Connection) -> Result<Option<[u8; 32]>, ReviusError>
+/// Get all refs (branches and tags) with their commit hashes. Returns Vec<(ref_path, commit_hash)>
+fn get_all_refs(conn: &Connection) -> Result<Vec<(String, [u8; 32])>, ReviusError>
 ```
 
 ## fs
@@ -504,6 +551,8 @@ fn build_recipe(hashes: &[[u8; 32]]) -> Vec<u8>
 
 ```rust
 fn unix_timestamp() -> Result<i64, time::SystemTimeError>
+/// Format Unix timestamp as human-readable string. Format: "Mon Dec 21 14:30:45 2024 +0000"
+fn format_timestamp(timestamp: i64) -> String
 ```
 
 ## cli
@@ -535,6 +584,9 @@ enum Commands {
 
     #[command(about = "Show the working tree status")]
     Status(StatusArgs),
+
+    #[command(about = "Show commit history")]
+    Log(LogArgs),
 }
 
 #[derive(Parser)]
@@ -559,6 +611,21 @@ struct CommitArgs {
 struct StatusArgs {
     // Currently no arguments, but can add --short, --verbose, etc. later
 }
+
+#[derive(Parser)]
+struct LogArgs {
+    #[arg(short = 'n', long, help = "Limit number of commits to show")]
+    limit: Option<usize>,
+    
+    #[arg(long, help = "Show commit graph with ASCII art")]
+    graph: bool,
+    
+    #[arg(long, help = "Show each commit on a single line")]
+    oneline: bool,
+    
+    #[arg(long, help = "Show only the first parent in merge commits")]
+    first_parent: bool,
+}
 ```
 
 ### `cli/ui.rs`
@@ -578,4 +645,12 @@ fn print_nothing_to_commit()
 fn print_detached_head_warning(commit_hash: &[u8; 32])
 
 fn print_status(status: &StatusInfo)
+
+fn print_no_commits()
+/// Print commit history based on options
+fn print_log(commits: &[CommitInfo], options: &LogOptions)
+fn print_commit_detailed(commit: &CommitInfo)
+fn print_commit_oneline(commit: &CommitInfo)
+/// For now implements a simple linear graph. Future enhancement: proper graph with branches
+fn print_commit_graph(commits: &[CommitInfo], oneline: bool)
 ```
