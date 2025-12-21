@@ -19,6 +19,9 @@ pub enum Commands {
 
     #[command(about = "Record changes to the repository")]
     Commit(CommitArgs),
+
+    #[command(about = "Show the working tree status")]
+    Status(StatusArgs),
 }
 
 #[derive(Parser)]
@@ -37,4 +40,9 @@ pub struct AddArgs {
 pub struct CommitArgs {
     #[arg(short, long, help = "Commit message")]
     pub message: String,
+}
+
+#[derive(Parser)]
+pub struct StatusArgs {
+    // Currently no arguments, but can add --short, --verbose, etc. later
 }

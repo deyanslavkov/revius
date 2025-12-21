@@ -1,5 +1,6 @@
 use crate::core::models::objects::TreeEntry;
 use crate::error::ReviusError;
+use crate::utils::hash::{hash_to_short_hex, vec_to_hash};
 use rusqlite::{Transaction, Connection};
 
 pub fn tree_exists(conn: &Connection, parent_hash: &[u8; 32]) -> Result<bool, ReviusError> {
@@ -45,4 +46,63 @@ pub fn batch_insert_tree_entries(
     }
 
     Ok(())
+}
+
+/// Get all direct children of a tree node (one level only)
+pub fn get_tree_entries(
+    conn: &Connection,
+    parent_hash: &[u8; 32],
+) -> Result<Vec<TreeEntry>, ReviusError> {
+    let mut stmt = conn
+        .prepare("SELECT parent_hash, name, object_hash, mode, is_dir FROM Trees WHERE parent_hash = ?")
+        .map_err(|e| {
+            ReviusError::Db(format!(
+                "Failed to prepare tree entries query for parent_hash {}: {}",
+                hash_to_short_hex(parent_hash),
+                e
+            ))
+        })?;
+
+    let entries = stmt
+        .query_map([parent_hash], |row| {
+            let parent_hash_vec = row.get::<_, Vec<u8>>(0)?;
+            let object_hash_vec = row.get::<_, Vec<u8>>(2)?;
+
+            Ok(TreeEntry {
+                parent_hash: vec_to_hash(&parent_hash_vec)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e,
+                    ))))?,
+                name: row.get(1)?,
+                object_hash: vec_to_hash(&object_hash_vec)
+                    .map_err(|e| rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+                        std::io::ErrorKind::InvalidData,
+                        e,
+                    ))))?,
+                mode: row.get(3)?,
+                is_dir: row.get(4)?,
+            })
+        })
+        .map_err(|e| {
+            ReviusError::Db(format!(
+                "Failed to query tree entries for parent_hash {}: {}",
+                hash_to_short_hex(parent_hash),
+                e
+            ))
+        })?;
+
+    let mut result = Vec::new();
+    for entry_result in entries {
+        let entry = entry_result.map_err(|e| {
+            ReviusError::Db(format!(
+                "Failed to read tree entry for parent_hash {}: {}",
+                hash_to_short_hex(parent_hash),
+                e
+            ))
+        })?;
+        result.push(entry);
+    }
+
+    Ok(result)
 }

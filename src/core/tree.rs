@@ -3,8 +3,9 @@ use crate::error::ReviusError;
 use crate::fs::paths;
 use crate::utils::hash;
 use crate::core::models::serialization;
-use rusqlite::Transaction;
+use rusqlite::{Connection, Transaction};
 use std::collections::BTreeMap;
+use crate::db;
 
 #[derive(Debug)]
 pub enum TreeNode {
@@ -136,4 +137,39 @@ pub fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], R
             Ok(parent_hash)
         }
     }
+}
+
+/// Recursively traverse a tree and return all file paths with their hashes
+/// Returns a map of repo-relative path -> file_hash for all files in the tree
+pub fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32])
+-> Result<BTreeMap<String, [u8; 32]>, ReviusError> {
+    let mut result = BTreeMap::new();
+    traverse_tree_recursive(conn, tree_hash, "", &mut result)?;
+    Ok(result)
+}
+
+/// Helper function for recursive tree traversal
+pub fn traverse_tree_recursive(
+    conn: &Connection,
+    parent_hash: &[u8; 32],
+    current_path: &str,
+    result: &mut BTreeMap<String, [u8; 32]>,
+) -> Result<(), ReviusError> {
+    let entries = db::trees::get_tree_entries(conn, parent_hash)?;
+
+    for entry in entries {
+        let full_path = if current_path.is_empty() {
+            entry.name.clone()
+        } else {
+            format!("{}/{}", current_path, entry.name)
+        };
+
+        if entry.is_dir {
+            traverse_tree_recursive(conn, &entry.object_hash, &full_path, result)?;
+        } else {
+            result.insert(full_path, entry.object_hash);
+        }
+    }
+
+    Ok(())
 }
