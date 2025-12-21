@@ -1,8 +1,9 @@
 use colored::Colorize;
 use std::path::Path;
 use crate::utils;
-use crate::core::models::objects::StatusInfo;
+use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions};
 use crate::utils::hash::hash_to_short_hex;
+use crate::utils::{hash, time};
 
 pub fn print_init_success(path: &Path) {
     println!(
@@ -144,6 +145,139 @@ pub fn print_status(status: &StatusInfo) {
             println!("no changes added to commit (use \"rvs add\" and/or \"rvs commit\")");
         } else {
             println!("no changes added to commit (use \"rvs add\")");
+        }
+    }
+}
+
+pub fn print_no_commits() {
+    println!("No commits yet");
+}
+
+/// Print commit history based on options
+pub fn print_log(commits: &[CommitInfo], options: &LogOptions) {
+    if options.show_graph {
+        print_commit_graph(commits, options.oneline);
+    } else if options.oneline {
+        for commit in commits {
+            print_commit_oneline(commit);
+        }
+    } else {
+        for commit in commits {
+            print_commit_detailed(commit);
+        }
+    }
+}
+
+fn print_commit_detailed(commit: &CommitInfo) {
+    print!("commit {}", hash::hash_to_hex(&commit.hash));
+
+    if !commit.refs.is_empty() {
+        print!(" (");
+        for (i, ref_path) in commit.refs.iter().enumerate() {
+            if i > 0 {
+                print!(", ");
+            }
+            let display_name = if let Some(branch) = ref_path.strip_prefix("refs/heads/") {
+                branch
+            } else if let Some(tag) = ref_path.strip_prefix("refs/tags/") {
+                tag
+            } else {
+                ref_path
+            };
+            print!("{}", display_name);
+        }
+        print!(")");
+    }
+    println!();
+
+    if let (Some(parent), Some(merge_parent)) = (commit.parent_hash, commit.merge_parent_hash) {
+        println!(
+            "Merge: {} {}",
+            hash::hash_to_short_hex(&parent),
+            hash::hash_to_short_hex(&merge_parent)
+        );
+    }
+
+    println!("Author: {} <{}>", commit.author_name, commit.author_email);
+
+    println!("Date:   {}", time::format_timestamp(commit.timestamp));
+
+    println!();
+    for line in commit.message.lines() {
+        println!("    {}", line);
+    }
+    println!();
+}
+
+fn print_commit_oneline(commit: &CommitInfo) {
+    let short_hash = hash::hash_to_short_hex(&commit.hash);
+
+    let message_first_line = commit.message.lines().next().unwrap_or("");
+
+    if !commit.refs.is_empty() {
+        let ref_display: Vec<String> = commit.refs.iter().map(|r| {
+            if let Some(branch) = r.strip_prefix("refs/heads/") {
+                branch.to_string()
+            } else if let Some(tag) = r.strip_prefix("refs/tags/") {
+                tag.to_string()
+            } else {
+                r.to_string()
+            }
+        }).collect();
+        println!("{} ({}) {}", short_hash, ref_display.join(", "), message_first_line);
+    } else {
+        println!("{} {}", short_hash, message_first_line);
+    }
+}
+
+/// For now implements a simple linear graph. Future enhancement: proper graph with branches
+fn print_commit_graph(commits: &[CommitInfo], oneline: bool) {
+    for (i, commit) in commits.iter().enumerate() {
+        let short_hash = hash::hash_to_short_hex(&commit.hash);
+        let message_first_line = commit.message.lines().next().unwrap_or("");
+
+        let graph_char = if i == 0 { "*" } else { "*" };
+
+        let refs_display = if !commit.refs.is_empty() {
+            let ref_names: Vec<String> = commit.refs.iter().map(|r| {
+                if let Some(branch) = r.strip_prefix("refs/heads/") {
+                    branch.to_string()
+                } else if let Some(tag) = r.strip_prefix("refs/tags/") {
+                    tag.to_string()
+                } else {
+                    r.to_string()
+                }
+            }).collect();
+            format!(" ({})", ref_names.join(", "))
+        } else {
+            String::new()
+        };
+
+        if oneline {
+            println!("{} {}{} {}", graph_char, short_hash, refs_display, message_first_line);
+        } else {
+            println!("{} commit {}{}", graph_char, hash::hash_to_hex(&commit.hash), refs_display);
+            if let (Some(parent), Some(merge_parent)) = (commit.parent_hash, commit.merge_parent_hash) {
+                println!("|\\  Merge: {} {}", 
+                    hash::hash_to_short_hex(&parent),
+                    hash::hash_to_short_hex(&merge_parent)
+                );
+            }
+            println!("| Author: {} <{}>", commit.author_name, commit.author_email);
+            println!("| Date:   {}", time::format_timestamp(commit.timestamp));
+            println!("|");
+            for line in commit.message.lines() {
+                println!("|     {}", line);
+            }
+            println!("|");
+        }
+
+        if i < commits.len() - 1 && !oneline {
+            if commits[i + 1].merge_parent_hash.is_some() {
+                println!("|\\");
+            } else {
+                println!("|");
+            }
         }
     }
 }
