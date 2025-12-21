@@ -34,6 +34,7 @@ fn main() {
         Commands::Init(args) => commands::init::run(args),
         Commands::Add(args) => commands::add::run(args),
         Commands::Commit(args) => commands::commit::run(args),
+        Commands::Status(args) => commands::status::run(args),
     };
 
     if let Err(e) = result {
@@ -128,6 +129,18 @@ fn run(args: CommitArgs) -> Result<(), ReviusError> {
 }
 ```
 
+### `commands/status.rs`
+
+```rust
+fn run(_args: StatusArgs) -> Result<(), ReviusError> {
+    let current_dir = fs::paths::get_current_dir()?;
+    let repo = core::open::open_repository(&current_dir)?;
+    let status_info = core::status::get_status_info(&repo)?;
+    ui::print_status(&status_info);
+    Ok(())
+}
+```
+
 ## core
 
 ### `core/config.rs`
@@ -145,7 +158,7 @@ fn create_repository(path: &Path) -> Result<Repository, ReviusError>
 ### `core/open.rs`
 
 ```rust
-// Finds repo root, opens DB connection, loads config, and checks schema version
+/// Finds repo root, opens DB connection, loads config, and checks schema version
 fn open_repository(start_path: &Path) -> Result<Repository, ReviusError>
 ```
 
@@ -202,6 +215,10 @@ impl TreeNode {
 fn build_tree_from_files(files: Vec<StagedFile>) -> Result<TreeNode, ReviusError>
 /// Recursively write tree entries to database and return parent_hash
 fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], ReviusError>
+/// Recursively traverse a tree and return all file paths with their hashes. Returns a map of repo-relative path -> file_hash for all files in the tree
+fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32]) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
+/// Helper function for recursive tree traversal
+fn traverse_tree_recursive(conn: &Connection, parent_hash: &[u8; 32], current_path: &str, result: &mut BTreeMap<String, [u8; 32]>) -> Result<(), ReviusError>
 ```
 
 ### `core/refs.rs`
@@ -214,6 +231,19 @@ enum HeadState {
 /// Update HEAD to point to a new commit. Handles both branch refs, detached HEAD, and initial commit case
 fn update_head(tx: &Transaction, commit_hash: &[u8; 32]) -> Result<(), ReviusError>
 fn get_head_state(conn: &Connection) -> Result<HeadState, ReviusError>
+```
+
+### `core/status.rs`
+
+```rust
+/// Get comprehensive status information by comparing HEAD, staging area, and working directory
+fn get_status_info(repo: &Repository) -> Result<StatusInfo, ReviusError>
+/// Get all files from HEAD commit with their hashes
+fn get_head_files(conn: &rusqlite::Connection) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
+/// Get all staged files with their hashes
+fn get_staged_files(conn: &rusqlite::Connection) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
+/// Get all working directory files with their hashes
+fn get_workdir_files(repo: &Repository) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
 ```
 
 ## core/models
@@ -276,6 +306,17 @@ struct Author {
     id: i64,
     name: String,
     email: String,
+}
+/// Complete status information comparing HEAD, staging, and working directory
+struct StatusInfo {
+    branch_name: Option<String>,
+    detached_commit: Option<[u8; 32]>,
+    staged_new: Vec<String>,
+    staged_modified: Vec<String>,
+    staged_deleted: Vec<String>,
+    unstaged_modified: Vec<String>,
+    unstaged_deleted: Vec<String>,
+    untracked: Vec<String>,
 }
 ```
 
@@ -340,6 +381,8 @@ fn tree_exists(conn: &Connection, parent_hash: &[u8; 32]) -> Result<bool, Revius
 fn insert_tree_entry(tx: &Transaction, parent_hash: &[u8; 32], name: &str, object_hash: &[u8; 32], mode: u32, is_dir: bool) -> Result<(), ReviusError>
 /// Efficient batch insert by optimizing the query
 fn batch_insert_tree_entries(tx: &Transaction, entries: Vec<TreeEntry>) -> Result<(), ReviusError>
+/// Get all direct children of a tree node (one level only)
+fn get_tree_entries(conn: &Connection, parent_hash: &[u8; 32]) -> Result<Vec<TreeEntry>, ReviusError>
 ```
 
 ### `db/commits.rs`
@@ -384,8 +427,12 @@ fn load_user_config() -> Result<UserConfig, ReviusError>
 ### `fs/walk.rs`
 
 ```rust
-/// Returns absolute paths to files using ignore::WalkBuilder
+/// Returns absolute paths to files
 fn expand_paths(paths: Vec<PathBuf>, repo_root: &Path, ignore_path: &Path) -> Result<Vec<PathBuf>, ReviusError>
+/// Get all unignored files in the working directory and return absolute paths to them
+fn get_all_repo_files(repo_root: &Path, ignore_path: &Path) -> Result<Vec<PathBuf>, ReviusError>
+/// Core directory walking implementation using ignore::WalkBuilder. Walks a directory tree and returns all unignored files
+fn walk_directory(start_path: &Path, repo_root: &Path, ignore_path: &Path) -> Result<Vec<PathBuf>, ReviusError>
 ```
 
 ### `fs/io.rs`
@@ -485,6 +532,9 @@ enum Commands {
 
     #[command(about = "Record changes to the repository")]
     Commit(CommitArgs),
+
+    #[command(about = "Show the working tree status")]
+    Status(StatusArgs),
 }
 
 #[derive(Parser)]
@@ -504,6 +554,11 @@ struct CommitArgs {
     #[arg(short, long, help = "Commit message")]
     message: String,
 }
+
+#[derive(Parser)]
+struct StatusArgs {
+    // Currently no arguments, but can add --short, --verbose, etc. later
+}
 ```
 
 ### `cli/ui.rs`
@@ -521,4 +576,6 @@ fn print_add_summary(added: u64, skipped: u64, blobs: u64)
 fn print_commit_success(hash: &[u8; 32], message: &str, files_changed: usize)
 fn print_nothing_to_commit()
 fn print_detached_head_warning(commit_hash: &[u8; 32])
+
+fn print_status(status: &StatusInfo)
 ```
