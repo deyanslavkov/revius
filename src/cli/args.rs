@@ -25,6 +25,9 @@ pub enum Commands {
 
     #[command(about = "Show commit history")]
     Log(LogArgs),
+
+    #[command(about = "List, create, rename, or delete branches")]
+    Branch(BranchArgs),
 }
 
 #[derive(Parser)]
@@ -63,4 +66,22 @@ pub struct LogArgs {
     
     #[arg(long, help = "Show only the first parent in merge commits")]
     pub first_parent: bool,
+}
+
+#[derive(Parser)]
+pub struct BranchArgs {
+    #[arg(help = "Branch name to create, or the first branch name when renaming/deleting")]
+    pub name: Option<String>,
+
+    #[arg(short = 'm', long, help = "Rename a branch")]
+    pub rename: bool,
+
+    #[arg(short = 'd', long, help = "Delete a branch")]
+    pub delete: bool,
+
+    #[arg(short = 'D', long, help = "Force delete a branch")]
+    pub force_delete: bool,
+
+    #[arg(help = "New name when renaming (optional second argument)")]
+    pub new_name: Option<String>,
 }

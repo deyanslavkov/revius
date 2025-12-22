@@ -29,6 +29,24 @@ pub enum ReviusError {
 
     #[error("Operation cancelled by user")]
     Cancelled,
+
+    #[error("Branch already exists: {0}")]
+    BranchAlreadyExists(String),
+
+    #[error("Branch not found: {0}")]
+    BranchNotFound(String),
+
+    #[error("Invalid branch name: {0}")]
+    InvalidBranchName(String),
+
+    #[error("Cannot delete current branch: {0}")]
+    CannotDeleteCurrentBranch(String),
+
+    #[error("Not on any branch (detached HEAD at {0})")]
+    DetachedHead(String),
+
+    #[error("Cannot perform operation: no commits yet")]
+    NoCommitsYet,
 }
 
 impl ReviusError {
