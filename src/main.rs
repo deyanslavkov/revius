@@ -12,6 +12,7 @@ fn main() {
         Commands::Commit(args) => commands::commit::run(args),
         Commands::Status(args) => commands::status::run(args),
         Commands::Log(args) => commands::log::run(args),
+        Commands::Branch(args) => commands::branch::run(args),
     };
 
     if let Err(e) = result {

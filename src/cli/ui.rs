@@ -281,3 +281,54 @@ fn print_commit_graph(commits: &[CommitInfo], oneline: bool) {
         }
     }
 }
+
+/// Print a list of branches with the current one marked
+pub fn print_branch_list(branches: &[(String, [u8; 32], bool)]) {
+    if branches.is_empty() {
+        println!("No branches found.");
+        return;
+    }
+
+    for (name, _hash, is_current) in branches {
+        if *is_current {
+            println!("* {}", name);
+        } else {
+            println!("  {}", name);
+        }
+    }
+}
+
+pub fn print_branch_created(branch_name: &str, commit_hash: &[u8; 32]) {
+    println!(
+        "Branch '{}' created at commit {}",
+        branch_name,
+        hash::hash_to_short_hex(commit_hash)
+    );
+}
+
+pub fn print_branch_renamed(old_name: &str, new_name: &str) {
+    println!("Branch '{}' renamed to '{}'", old_name, new_name);
+}
+
+pub fn print_branch_deleted(branch_name: &str, commit_hash: &[u8; 32]) {
+    println!(
+        "Deleted branch '{}' (was at {})",
+        branch_name,
+        hash::hash_to_short_hex(commit_hash)
+    );
+}
+
+pub fn print_current_branch(branch_name: &str) {
+    println!("{}", branch_name);
+}
+
+pub fn print_detached_head_branch_warning(commit_hash: &[u8; 32]) {
+    println!(
+        "Not currently on any branch (detached HEAD at {})",
+        hash::hash_to_short_hex(commit_hash)
+    );
+}
+
+pub fn print_no_branches() {
+    println!("No branches found.");
+}
