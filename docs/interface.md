@@ -36,6 +36,7 @@ fn main() {
         Commands::Commit(args) => commands::commit::run(args),
         Commands::Status(args) => commands::status::run(args),
         Commands::Log(args) => commands::log::run(args),
+        Commands::Branch(args) => commands::branch::run(args),
     };
 
     if let Err(e) = result {
@@ -79,6 +80,24 @@ enum ReviusError {
 
     #[error("Operation cancelled by user")]
     Cancelled,
+
+    #[error("Branch already exists: {0}")]
+    BranchAlreadyExists(String),
+
+    #[error("Branch not found: {0}")]
+    BranchNotFound(String),
+
+    #[error("Invalid branch name: {0}")]
+    InvalidBranchName(String),
+
+    #[error("Cannot delete current branch: {0}")]
+    CannotDeleteCurrentBranch(String),
+
+    #[error("Not on any branch (detached HEAD at {0})")]
+    DetachedHead(String),
+
+    #[error("Cannot perform operation: no commits yet")]
+    NoCommitsYet,
 }
 
 impl ReviusError {
@@ -156,6 +175,16 @@ fn run(args: LogArgs) -> Result<(), ReviusError> {
     ui::print_log(&commits, &options);
     Ok(())
 }
+```
+
+### `commands/branch.rs`
+
+```rust
+fn run(args: BranchArgs) -> Result<(), ReviusError>
+fn handle_create(repo: &Repository, args: BranchArgs) -> Result<(), ReviusError>
+fn handle_list(repo: &Repository) -> Result<(), ReviusError>
+fn handle_rename(repo: &Repository, args: BranchArgs) -> Result<(), ReviusError>
+fn handle_delete(repo: &Repository, args: BranchArgs, force: bool) -> Result<(), ReviusError>
 ```
 
 ## core
@@ -248,6 +277,7 @@ enum HeadState {
 /// Update HEAD to point to a new commit. Handles both branch refs, detached HEAD, and initial commit case
 fn update_head(tx: &Transaction, commit_hash: &[u8; 32]) -> Result<(), ReviusError>
 fn get_head_state(conn: &Connection) -> Result<HeadState, ReviusError>
+fn update_head_to_branch(tx: &Transaction, branch_name: &str) -> Result<(), ReviusError>
 ```
 
 ### `core/status.rs`
@@ -268,6 +298,23 @@ fn get_workdir_files(repo: &Repository) -> Result<BTreeMap<String, [u8; 32]>, Re
 ```rust
 /// Get commit history starting from HEAD, traversing the parent chain
 fn get_commit_history(conn: &Connection, options: &LogOptions) -> Result<Vec<CommitInfo>, ReviusError>
+```
+
+### `core/branch.rs`
+
+```rust
+fn branch_ref_path(branch_name: &str) -> String
+fn extract_branch_name(ref_path: &str) -> Result<String, ReviusError>
+/// Create a new branch at the current commit. Returns the commit hash where the branch was created
+fn create_branch(repo: &Repository, branch_name: &str) -> Result<[u8; 32], ReviusError>
+/// Rename a branch. If old_name is None, renames the current branch. Returns (old_ref_path, new_ref_path)
+fn rename_branch(repo: &Repository, old_name: Option<&str>, new_name: &str) -> Result<(String, String), ReviusError>
+/// Delete a branch with safety checks (can't delete current, can't delete if unmerged). Returns the commit hash where the branch pointed
+fn delete_branch(repo: &Repository, branch_name: &str, _force: bool) -> Result<[u8; 32], ReviusError>
+/// List all branches with their commit hashes. Returns Vec<(branch_name, commit_hash, is_current)>
+fn list_branches(repo: &Repository) -> Result<Vec<(String, [u8; 32], bool)>, ReviusError>
+/// Get the current branch name (if on a branch). Returns None if in detached HEAD
+fn get_current_branch_name(repo: &Repository) -> Result<Option<String>, ReviusError>
 ```
 
 ## core/models
@@ -457,6 +504,16 @@ fn update_ref(tx: &Transaction, path: &str, commit_hash: &[u8; 32]) -> Result<()
 fn resolve_head(conn: &Connection) -> Result<Option<[u8; 32]>, ReviusError>
 /// Get all refs (branches and tags) with their commit hashes. Returns Vec<(ref_path, commit_hash)>
 fn get_all_refs(conn: &Connection) -> Result<Vec<(String, [u8; 32])>, ReviusError>
+/// Get all branch refs (starting with "refs/heads/"). Returns Vec<(branch_name_only, commit_hash)>
+fn get_all_branches(conn: &Connection) -> Result<Vec<(String, [u8; 32])>, ReviusError>
+fn delete_ref(tx: &Transaction, path: &str) -> Result<(), ReviusError>
+fn ref_exists(conn: &Connection, path: &str) -> Result<bool, ReviusError>
+```
+
+### `db/reflog.rs`
+
+```rust
+fn insert_reflog(tx: &Transaction, ref_path: &str, old_hash: Option<&[u8; 32]>, new_hash: Option<&[u8; 32]>, action: &str) -> Result<(), ReviusError>
 ```
 
 ## fs
@@ -555,6 +612,12 @@ fn unix_timestamp() -> Result<i64, time::SystemTimeError>
 fn format_timestamp(timestamp: i64) -> String
 ```
 
+### `utils/validation.rs`
+
+```rust
+fn validate_branch_name(name: &str) -> Result<(), ReviusError>
+```
+
 ## cli
 
 ### `cli/args.rs`
@@ -587,6 +650,9 @@ enum Commands {
 
     #[command(about = "Show commit history")]
     Log(LogArgs),
+
+    #[command(about = "List, create, rename, or delete branches")]
+    Branch(BranchArgs),
 }
 
 #[derive(Parser)]
@@ -626,6 +692,24 @@ struct LogArgs {
     #[arg(long, help = "Show only the first parent in merge commits")]
     first_parent: bool,
 }
+
+#[derive(Parser)]
+struct BranchArgs {
+    #[arg(help = "Branch name to create, or the first branch name when renaming/deleting")]
+    name: Option<String>,
+
+    #[arg(short = 'm', long, help = "Rename a branch")]
+    rename: bool,
+
+    #[arg(short = 'd', long, help = "Delete a branch")]
+    delete: bool,
+
+    #[arg(short = 'D', long, help = "Force delete a branch")]
+    force_delete: bool,
+
+    #[arg(help = "New name when renaming (optional second argument)")]
+    new_name: Option<String>,
+}
 ```
 
 ### `cli/ui.rs`
@@ -653,4 +737,13 @@ fn print_commit_detailed(commit: &CommitInfo)
 fn print_commit_oneline(commit: &CommitInfo)
 /// For now implements a simple linear graph. Future enhancement: proper graph with branches
 fn print_commit_graph(commits: &[CommitInfo], oneline: bool)
+
+/// Print a list of branches with the current one marked
+fn print_branch_list(branches: &[(String, [u8; 32], bool)])
+fn print_branch_created(branch_name: &str, commit_hash: &[u8; 32])
+fn print_branch_renamed(old_name: &str, new_name: &str)
+fn print_branch_deleted(branch_name: &str, commit_hash: &[u8; 32])
+fn print_current_branch(branch_name: &str)
+fn print_detached_head_branch_warning(commit_hash: &[u8; 32])
+fn print_no_branches()
 ```
