@@ -8,3 +8,4 @@ pub mod trees;
 pub mod commits;
 pub mod authors;
 pub mod refs;
+pub mod reflog;
