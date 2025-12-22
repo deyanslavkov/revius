@@ -3,3 +3,4 @@ pub mod compression;
 pub mod cdc;
 pub mod recipe;
 pub mod time;
+pub mod validation;
