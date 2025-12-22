@@ -95,3 +95,58 @@ pub fn get_all_refs(conn: &Connection) -> Result<Vec<(String, [u8; 32])>, Revius
 
     Ok(result)
 }
+
+/// Get all branch refs (starting with "refs/heads/"). Returns Vec<(branch_name_only, commit_hash)>
+pub fn get_all_branches(conn: &Connection) -> Result<Vec<(String, [u8; 32])>, ReviusError> {
+    let mut stmt = conn
+        .prepare("SELECT path, commit_hash FROM Refs WHERE path LIKE 'refs/heads/%' ORDER BY path")
+        .map_err(|e| ReviusError::Db(format!("Failed to prepare query for branches: {}", e)))?;
+
+    let rows = stmt
+        .query_map([], |row| {
+            let path: String = row.get(0)?;
+            let hash_vec: Vec<u8> = row.get(1)?;
+            Ok((path, hash_vec))
+        })
+        .map_err(|e| ReviusError::Db(format!("Failed to query branches: {}", e)))?;
+
+    let mut branches = Vec::new();
+    for row_result in rows {
+        let (path, hash_vec) = row_result
+            .map_err(|e| ReviusError::Db(format!("Failed to read branch row: {}", e)))?;
+
+        let branch_name = path
+            .strip_prefix("refs/heads/")
+            .ok_or_else(|| ReviusError::Db(format!("Invalid branch ref path: {}", path)))?
+            .to_string();
+
+        let hash = hash::vec_to_hash(&hash_vec)
+            .map_err(|e| ReviusError::Db(format!("Invalid hash in branch {}: {}", branch_name, e)))?;
+
+        branches.push((branch_name, hash));
+    }
+
+    Ok(branches)
+}
+
+pub fn delete_ref(tx: &Transaction, path: &str) -> Result<(), ReviusError> {
+    let rows_affected = tx
+        .execute("DELETE FROM Refs WHERE path = ?1", [path])
+        .map_err(|e| ReviusError::Db(format!("Failed to delete ref {}: {}", path, e)))?;
+
+    if rows_affected == 0 {
+        return Err(ReviusError::BranchNotFound(path.to_string()));
+    }
+
+    Ok(())
+}
+
+pub fn ref_exists(conn: &Connection, path: &str) -> Result<bool, ReviusError> {
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM Refs WHERE path = ?1", [path], |row| {
+            row.get(0)
+        })
+        .map_err(|e| ReviusError::Db(format!("Failed to check if ref exists {}: {}", path, e)))?;
+
+    Ok(count > 0)
+}
