@@ -76,3 +76,9 @@ pub fn get_head_state(conn: &Connection) -> Result<HeadState, ReviusError> {
         Ok(HeadState::Detached(hash_array))
     }
 }
+
+pub fn update_head_to_branch(tx: &Transaction, branch_name: &str) -> Result<(), ReviusError> {
+    let head_value = format!("ref: refs/heads/{}", branch_name);
+    meta::set_meta(tx, "HEAD", &head_value)?;
+    Ok(())
+}
