@@ -78,3 +78,10 @@ pub fn get_all_staged(conn: &Connection) -> Result<Vec<StagedFile>, ReviusError>
 
     Ok(files)
 }
+
+pub fn clear_staging(conn: &Transaction) -> Result<(), ReviusError> {
+    conn.execute("DELETE FROM Staging", [])
+        .map_err(|e| ReviusError::Db(format!("Failed to clear Staging table: {}", e)))?;
+    
+    Ok(())
+}
