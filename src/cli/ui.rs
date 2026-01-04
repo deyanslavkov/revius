@@ -1,7 +1,7 @@
 use colored::Colorize;
 use std::path::Path;
 use crate::utils;
-use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions};
+use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, HeadState};
 use crate::utils::hash::hash_to_short_hex;
 use crate::utils::{hash, time};
 
@@ -331,4 +331,45 @@ pub fn print_detached_head_branch_warning(commit_hash: &[u8; 32]) {
 
 pub fn print_no_branches() {
     println!("No branches found.");
+}
+
+pub fn print_switch_success(
+    previous: &HeadState,
+    new: &HeadState,
+    files_changed: usize,
+    files_deleted: usize,
+) {
+    match previous {
+        HeadState::Branch(name, _) => {
+            print!("Switched from branch '{}' ", name);
+        }
+        HeadState::Detached(hash) => {
+            print!("Switched from detached HEAD at {} ", hash::hash_to_short_hex(hash));
+        }
+    }
+
+    match new {
+        HeadState::Branch(name, hash) => {
+            println!("to branch '{}' ({})", name, hash::hash_to_short_hex(hash));
+        }
+        HeadState::Detached(hash) => {
+            println!("to commit {}", hash::hash_to_short_hex(hash));
+            println!("You are in 'detached HEAD' state.");
+        }
+    }
+
+    if files_changed > 0 || files_deleted > 0 {
+        println!(
+            "{} file(s) changed, {} file(s) deleted",
+            files_changed, files_deleted
+        );
+    }
+}
+
+pub fn print_branch_created_and_switched(branch_name: &str, commit_hash: &[u8; 32]) {
+    println!(
+        "Switched to a new branch '{}' at commit {}",
+        branch_name,
+        hash::hash_to_short_hex(commit_hash)
+    );
 }
