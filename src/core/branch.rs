@@ -3,6 +3,7 @@ use crate::core::refs::{get_head_state, update_head_to_branch, HeadState};
 use crate::db;
 use crate::error::ReviusError;
 use crate::utils::{hash, validation};
+use rusqlite::Transaction;
 
 fn branch_ref_path(branch_name: &str) -> String {
     format!("refs/heads/{}", branch_name)
@@ -13,6 +14,35 @@ fn extract_branch_name(ref_path: &str) -> Result<String, ReviusError> {
         .strip_prefix("refs/heads/")
         .ok_or_else(|| ReviusError::Db(format!("Invalid branch ref path: {}", ref_path)))
         .map(|s| s.to_string())
+}
+
+/// Create a branch within an existing transaction
+/// This is used by switch -c to create and switch in one transaction
+pub fn create_branch_in_tx(
+    tx: &Transaction,
+    branch_name: &str,
+    commit_hash: &[u8; 32],
+) -> Result<(), ReviusError> {
+    // Validate branch name
+    validation::validate_branch_name(branch_name)?;
+
+    // Verify commit exists
+    if !db::commits::commit_exists(tx, commit_hash)? {
+        return Err(ReviusError::CommitNotFound(
+            hash::hash_to_hex(commit_hash)
+        ));
+    }
+    
+    // Check if branch already exists
+    let branch_ref = branch_ref_path(branch_name);
+    if db::refs::ref_exists(tx, &branch_ref)? {
+        return Err(ReviusError::BranchAlreadyExists(branch_name.to_string()));
+    }
+    
+    // Create the branch ref
+    db::refs::upsert_ref(tx, &branch_ref, 0, commit_hash)?;
+    
+    Ok(())
 }
 
 /// Create a new branch at the current commit. Returns the commit hash where the branch was created
