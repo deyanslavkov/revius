@@ -16,8 +16,7 @@ fn extract_branch_name(ref_path: &str) -> Result<String, ReviusError> {
         .map(|s| s.to_string())
 }
 
-/// Create a branch within an existing transaction
-/// This is used by switch -c to create and switch in one transaction
+/// Create a branch within an existing transaction. This is used by switch -c to create and switch in one transaction
 pub fn create_branch_in_tx(
     tx: &Transaction,
     branch_name: &str,
