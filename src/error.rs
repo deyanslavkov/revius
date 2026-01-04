@@ -47,6 +47,21 @@ pub enum ReviusError {
 
     #[error("Cannot perform operation: no commits yet")]
     NoCommitsYet,
+
+    #[error("Target not found: {0}")]
+    TargetNotFound(String),
+
+    #[error("Cannot switch: you have uncommitted changes. Use -f to force")]
+    UncommittedChanges,
+
+    #[error("Commit not found: {0}")]
+    CommitNotFound(String),
+
+    #[error("Ambiguous hash prefix '{0}': matches multiple commits. Please use a longer prefix.")]
+    AmbiguousHashPrefix(String),
+
+    #[error("Invalid hash prefix '{0}': must be 1-64 hex characters")]
+    InvalidHashPrefix(String),
 }
 
 impl ReviusError {
