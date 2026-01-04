@@ -75,12 +75,15 @@ pub fn switch_to_target(
     
     // Clear and rebuild staging
     db::staging::clear_staging(&tx)?;
-    update_staging_from_tree(&tx, repo, target_tree)?;
+    update_staging_from_tree(&tx, target_tree)?;
     
     tx.commit()
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
     
     // Phase 4: Apply Workspace Changes
+    // Note: If this fails, DB is already committed. This is acceptable because:
+    // - DB integrity is maintained
+    // - User can manually fix working directory or re-run switch with --force
     let (files_changed, files_deleted) = apply_workspace_changes(repo, &plan)?;
     
     // Phase 5: Return Result
@@ -174,22 +177,31 @@ pub fn resolve_target(conn: &Connection, target: &str) -> Result<(TargetType, [u
         return Ok((TargetType::Branch(target.to_string()), commit_hash));
     }
     
-    // Try as commit hash
-    if let Ok(hash_bytes) = hex::decode(target) {
-        if hash_bytes.len() == 32 {
-            if let Ok(hash) = utils::hash::vec_to_hash(&hash_bytes) {
-                // Verify commit exists
-                if db::commits::commit_exists(conn, &hash)? {
-                    return Ok((TargetType::Commit, hash));
-                } else {
-                    // Valid hash format but commit doesn't exist
-                    return Err(ReviusError::CommitNotFound(target.to_string()));
+    // Try as full commit hash (64 hex chars)
+    if target.len() == 64 {
+        if let Ok(hash_bytes) = hex::decode(target) {
+            if hash_bytes.len() == 32 {
+                if let Ok(hash) = utils::hash::vec_to_hash(&hash_bytes) {
+                    // Verify commit exists
+                    if db::commits::commit_exists(conn, &hash)? {
+                        return Ok((TargetType::Commit, hash));
+                    } else {
+                        return Err(ReviusError::CommitNotFound(target.to_string()));
+                    }
                 }
             }
         }
     }
     
-    // Neither branch nor valid commit hash
+    // Try as hash prefix (1-63 hex chars)
+    if utils::hash::is_valid_hash_prefix(target) && target.len() < 64 {
+        match db::commits::resolve_commit_prefix(conn, target) {
+            Ok(hash) => return Ok((TargetType::Commit, hash)),
+            Err(e) => return Err(e), // Propagate AmbiguousHashPrefix, CommitNotFound, etc.
+        }
+    }
+    
+    // Neither branch nor valid commit hash/prefix
     Err(ReviusError::TargetNotFound(target.to_string()))
 }
 
@@ -317,21 +329,16 @@ pub fn apply_workspace_changes(
 
 pub fn update_staging_from_tree(
     tx: &rusqlite::Transaction,
-    repo: &Repository,
     tree_hash: [u8; 32],
 ) -> Result<(), ReviusError> {
     let files = db::trees::get_all_files_in_tree(tx, &tree_hash)?;
     
+    // Use current timestamp for all staged files since they'll be written to disk after this transaction
+    let current_time = crate::utils::time::unix_timestamp()
+        .unwrap_or(0);
+    
     for (path, file_hash, mode, size) in files {
-        // Get modified time from actual file if it exists, otherwise use 0
-        let abs_path = fs::paths::to_absolute(&path, &repo.root);
-        let modified_at = if fs::paths::path_exists(&abs_path) {
-            fs::io::get_file_modified_time(&abs_path).unwrap_or(0)
-        } else {
-            0
-        };
-        
-        db::staging::upsert_staging(tx, &path, &file_hash, mode, size, modified_at)?;
+        db::staging::upsert_staging(tx, &path, &file_hash, mode, size, current_time)?;
     }
     
     Ok(())
