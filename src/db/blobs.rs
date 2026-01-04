@@ -1,5 +1,5 @@
 use crate::{error::ReviusError, utils};
-use rusqlite::Transaction;
+use rusqlite::{Connection, Transaction};
 
 pub fn insert_blob(tx: &Transaction, hash: &[u8; 32], data: &[u8], compression: &str, uncompressed_size: u64) -> Result<(), ReviusError> {
     tx.execute(
@@ -28,4 +28,23 @@ pub fn blob_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusErro
     )))?;
     
     Ok(count > 0)
+}
+
+/// Get compressed blob data by hash
+pub fn get_blob(conn: &Connection, blob_hash: &[u8; 32]) -> Result<Vec<u8>, ReviusError> {
+    let compressed_data: Vec<u8> = conn
+        .query_row(
+            "SELECT data FROM Blobs WHERE hash = ?1",
+            rusqlite::params![blob_hash.as_slice()],
+            |row| row.get(0),
+        )
+        .map_err(|e| {
+            ReviusError::Db(format!(
+                "Failed to get blob (hash={}): {}",
+                utils::hash::hash_to_short_hex(blob_hash),
+                e
+            ))
+        })?;
+    
+    Ok(compressed_data)
 }

@@ -28,6 +28,9 @@ pub enum Commands {
 
     #[command(about = "List, create, rename, or delete branches")]
     Branch(BranchArgs),
+
+    #[command(about = "Switch branches or restore working tree files")]
+    Switch(SwitchArgs),
 }
 
 #[derive(Parser)]
@@ -84,4 +87,16 @@ pub struct BranchArgs {
 
     #[arg(help = "New name when renaming (optional second argument)")]
     pub new_name: Option<String>,
+}
+
+#[derive(Parser)]
+pub struct SwitchArgs {
+    #[arg(help = "Branch name or commit hash to switch to")]
+    pub target: String,
+
+    #[arg(short = 'c', long, help = "Create new branch from current state and switch to it")]
+    pub create: bool,
+
+    #[arg(short = 'f', long, help = "Force switch, discarding local changes")]
+    pub force: bool,
 }

@@ -15,6 +15,11 @@ pub struct File {
     pub recipe: Vec<u8>,
 }
 
+pub struct FileInfo {
+    pub size: i64,
+    pub recipe: Vec<u8>,
+}
+
 #[derive(Debug, Clone)]
 pub struct StagedFile {
     pub path: String,
@@ -100,4 +105,30 @@ pub struct CommitInfo {
     pub timestamp: i64,
     pub message: String,
     pub refs: Vec<String>, // Branch/tag names pointing to this commit
+}
+
+#[derive(Debug)]
+pub struct SwitchResult {
+    pub previous_head: HeadState,
+    pub new_head: HeadState,
+    pub files_changed: usize,
+    pub files_deleted: usize,
+}
+
+#[derive(Debug, Clone)]
+pub enum HeadState {
+    Branch(String, [u8; 32]),
+    Detached([u8; 32]),
+}
+
+#[derive(Debug)]
+pub enum TargetType {
+    Branch(String),
+    Commit,
+}
+
+pub struct SwitchPlan {
+    pub to_add: Vec<(String, [u8; 32], u32)>, // (path, file_hash, mode)
+    pub to_modify: Vec<(String, [u8; 32], u32)>, // (path, file_hash, mode)
+    pub to_delete: Vec<String>, // path
 }

@@ -1,5 +1,6 @@
 use crate::{error::ReviusError, utils};
-use rusqlite::Transaction;
+use crate::core::models::objects::FileInfo;
+use rusqlite::{Connection, Transaction};
 
 pub fn insert_file(tx: &Transaction, hash: &[u8; 32], recipe: &[u8], chunk_count: u64, size: u64) -> Result<(), ReviusError> {
     tx.execute(
@@ -28,4 +29,25 @@ pub fn file_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusErro
     )))?;
     
     Ok(count > 0)
+}
+
+pub fn get_file(conn: &Connection, file_hash: &[u8; 32]) -> Result<FileInfo, ReviusError> {
+    let row = conn.query_row(
+        "SELECT size, recipe FROM Files WHERE hash = ?1",
+        rusqlite::params![file_hash.as_slice()],
+        |row| {
+            let size: i64 = row.get(0)?;
+            let recipe: Vec<u8> = row.get(1)?;
+            Ok(FileInfo { size, recipe })
+        },
+    )
+    .map_err(|e| {
+        ReviusError::Db(format!(
+            "Failed to get file (hash={}): {}",
+            utils::hash::hash_to_short_hex(file_hash),
+            e
+        ))
+    })?;
+    
+    Ok(row)
 }

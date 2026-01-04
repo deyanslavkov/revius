@@ -37,6 +37,7 @@ fn main() {
         Commands::Status(args) => commands::status::run(args),
         Commands::Log(args) => commands::log::run(args),
         Commands::Branch(args) => commands::branch::run(args),
+        Commands::Switch(args) => commands::switch::run(args),
     };
 
     if let Err(e) = result {
@@ -98,6 +99,21 @@ enum ReviusError {
 
     #[error("Cannot perform operation: no commits yet")]
     NoCommitsYet,
+
+    #[error("Target not found: {0}")]
+    TargetNotFound(String),
+
+    #[error("Cannot switch: you have uncommitted changes. Use -f to force")]
+    UncommittedChanges,
+
+    #[error("Commit not found: {0}")]
+    CommitNotFound(String),
+
+    #[error("Ambiguous hash prefix '{0}': matches multiple commits. Please use a longer prefix.")]
+    AmbiguousHashPrefix(String),
+
+    #[error("Invalid hash prefix '{0}': must be 1-64 hex characters")]
+    InvalidHashPrefix(String),
 }
 
 impl ReviusError {
@@ -185,6 +201,12 @@ fn handle_create(repo: &Repository, args: BranchArgs) -> Result<(), ReviusError>
 fn handle_list(repo: &Repository) -> Result<(), ReviusError>
 fn handle_rename(repo: &Repository, args: BranchArgs) -> Result<(), ReviusError>
 fn handle_delete(repo: &Repository, args: BranchArgs, force: bool) -> Result<(), ReviusError>
+```
+
+### `commands/switch.rs`
+
+```rust
+fn run(args: SwitchArgs) -> Result<(), ReviusError>
 ```
 
 ## core
@@ -305,6 +327,8 @@ fn get_commit_history(conn: &Connection, options: &LogOptions) -> Result<Vec<Com
 ```rust
 fn branch_ref_path(branch_name: &str) -> String
 fn extract_branch_name(ref_path: &str) -> Result<String, ReviusError>
+/// Create a branch within an existing transaction. This is used by switch -c to create and switch in one transaction
+fn create_branch_in_tx(tx: &Transaction, branch_name: &str, commit_hash: &[u8; 32]) -> Result<(), ReviusError>
 /// Create a new branch at the current commit. Returns the commit hash where the branch was created
 fn create_branch(repo: &Repository, branch_name: &str) -> Result<[u8; 32], ReviusError>
 /// Rename a branch. If old_name is None, renames the current branch. Returns (old_ref_path, new_ref_path)
@@ -315,6 +339,47 @@ fn delete_branch(repo: &Repository, branch_name: &str, _force: bool) -> Result<[
 fn list_branches(repo: &Repository) -> Result<Vec<(String, [u8; 32], bool)>, ReviusError>
 /// Get the current branch name (if on a branch). Returns None if in detached HEAD
 fn get_current_branch_name(repo: &Repository) -> Result<Option<String>, ReviusError>
+```
+
+### `core/checkout.rs`
+
+```rust
+/// Reconstruct file content from database (Files + Blobs + recipe)
+fn reconstruct_file(conn: &Connection, file_hash: &[u8; 32]) -> Result<Vec<u8>, ReviusError>
+/// Write reconstructed content to working directory
+fn checkout_file(conn: &Connection, file_hash: &[u8; 32], target_path: &Path, mode: u32) -> Result<(), ReviusError>
+```
+
+### `core/switch.rs`
+
+```rust
+/// Switch to a branch or commit. Updates HEAD, staging, and working directory.
+/// Returns previous and new HEAD states with file change counts.
+/// If workspace update fails after DB commit, DB remains consistent but workdir may be partial.
+fn switch_to_target(repo: &Repository, target: &str, create: bool, force: bool) -> Result<SwitchResult, ReviusError>
+/// Create a new branch at current commit and switch to it atomically.
+/// Used by `switch -c`. No workspace changes since staying on same commit.
+fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<SwitchResult, ReviusError>
+/// Get current HEAD state (branch or detached) and the commit it points to.
+/// Returns (HeadState, Option<commit_hash>). Option is None only if no commits exist yet.
+fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u8; 32]>), ReviusError>
+/// Resolve target string to branch or commit. Tries in order: branch name, full hash (64 chars), hash prefix (1-63 chars).
+/// Returns (TargetType, commit_hash) or error if ambiguous/not found.
+fn resolve_target(conn: &Connection, target: &str) -> Result<(TargetType, [u8; 32]), ReviusError>
+/// Check if working directory differs from staging area.
+/// Returns true if there are modifications, additions, or deletions in workdir vs staging.
+fn check_uncommitted_changes(repo: &Repository) -> Result<bool, ReviusError>
+/// Build plan for switching from current_tree to target_tree.
+/// Returns lists of files to add, modify, and delete. Current tree is None for initial commit case.
+fn build_switch_plan(conn: &Connection, current_tree: Option<[u8; 32]>, target_tree: [u8; 32]) -> Result<SwitchPlan, ReviusError>
+/// Execute workspace changes: delete files, then add/modify files by reconstructing from DB.
+/// Returns (files_changed_count, files_deleted_count).
+fn apply_workspace_changes(repo: &Repository, plan: &SwitchPlan) -> Result<(usize, usize), ReviusError>
+/// Rebuild staging area from tree. Clears existing staging and populates with all files in tree.
+fn update_staging_from_tree(tx: &rusqlite::Transaction, tree_hash: [u8; 32]) -> Result<(), ReviusError>
+/// Format target type and name for user-facing messages.
+/// Returns "branch 'name'" or "commit 'hash'".
+fn format_target_name(target_type: &TargetType, target: &str) -> String
 ```
 
 ## core/models
@@ -356,6 +421,10 @@ struct StagedFile {
     file_hash: [u8; 32],
     mode: u32,
     size: u64,
+}
+struct FileInfo {
+    size: i64,
+    recipe: Vec<u8>,
 }
 struct Commit {
     hash: [u8; 32],
@@ -408,6 +477,25 @@ struct CommitInfo {
     message: String,
     refs: Vec<String>, // Branch/tag names pointing to this commit
 }
+struct SwitchResult {
+    previous_head: HeadState,
+    new_head: HeadState,
+    files_changed: usize,
+    files_deleted: usize,
+}
+enum HeadState {
+    Branch(String, [u8; 32]),
+    Detached([u8; 32]),
+}
+enum TargetType {
+    Branch(String),
+    Commit,
+}
+struct SwitchPlan {
+    to_add: Vec<(String, [u8; 32], u32)>, // (path, file_hash, mode)
+    to_modify: Vec<(String, [u8; 32], u32)>, // (path, file_hash, mode)
+    to_delete: Vec<String>, // path
+}
 ```
 
 ### `core/models/repository.rs`
@@ -438,6 +526,7 @@ const CURRENT_SCHEMA_VERSION: i64 = 1;
 fn check_schema_version(conn: &Connection) -> Result<(), ReviusError>
 fn get_schema_version(conn: &Connection) -> Result<i64, ReviusError>
 fn get_meta(conn: &Connection, key: &str) -> Result<Option<String>, ReviusError>
+// Sets a meta value by key (both inserting and updating)
 fn set_meta(tx: &Transaction, key: &str, value: &str) -> Result<(), ReviusError>
 ```
 
@@ -446,6 +535,8 @@ fn set_meta(tx: &Transaction, key: &str, value: &str) -> Result<(), ReviusError>
 ```rust
 fn insert_blob(tx: &Transaction, hash: &[u8; 32], data: &[u8], compression: &str, uncompressed_size: u64) -> Result<(), ReviusError>
 fn blob_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusError>
+/// Get compressed blob data by hash
+fn get_blob(conn: &Connection, blob_hash: &[u8; 32]) -> Result<Vec<u8>, ReviusError>
 ```
 
 ### `db/files.rs`
@@ -453,6 +544,7 @@ fn blob_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusError>
 ```rust
 fn insert_file(tx: &Transaction, hash: &[u8; 32], recipe: &[u8], chunk_count: u64, size: u64) -> Result<(), ReviusError>
 fn file_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusError>
+fn get_file(conn: &Connection, file_hash: &[u8; 32]) -> Result<FileInfo, ReviusError>
 ```
 
 ### `db/staging.rs`
@@ -462,6 +554,7 @@ fn file_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusError>
 fn get_staged_file(tx: &Transaction, path: &str) -> Result<Option<StagedFile>, ReviusError>
 fn upsert_staging(tx: &Transaction, path: &str, hash: &[u8; 32], mode: u32, size: u64, modified_at: i64) -> Result<(), ReviusError>
 fn get_all_staged(conn: &Connection) -> Result<Vec<StagedFile>, ReviusError>
+fn clear_staging(conn: &Transaction) -> Result<(), ReviusError>
 ```
 
 ### `db/trees.rs`
@@ -473,6 +566,9 @@ fn insert_tree_entry(tx: &Transaction, parent_hash: &[u8; 32], name: &str, objec
 fn batch_insert_tree_entries(tx: &Transaction, entries: Vec<TreeEntry>) -> Result<(), ReviusError>
 /// Get all direct children of a tree node (one level only)
 fn get_tree_entries(conn: &Connection, parent_hash: &[u8; 32]) -> Result<Vec<TreeEntry>, ReviusError>
+/// Get all file entries from a tree (recursively) for staging reconstruction. Returns Vec<(relative_path, file_hash, mode, size)>
+fn get_all_files_in_tree(conn: &Connection, tree_hash: &[u8; 32]) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError>
+fn get_file_size(conn: &Connection, file_hash: &[u8; 32]) -> Result<u64, ReviusError>
 ```
 
 ### `db/commits.rs`
@@ -482,6 +578,14 @@ use crate::core::models::objects::Commit;
 fn insert_commit(tx: &Transaction, hash: &[u8; 32], parent_hash: Option<&[u8; 32]>, merge_parent_hash: Option<&[u8; 32]>, tree_hash: &[u8; 32], message: &str, author_id: i64, timestamp: i64) -> Result<(), ReviusError>
 fn get_commit(conn: &Connection, hash: &[u8; 32]) -> Result<Option<Commit>, ReviusError>
 fn commit_exists(conn: &Connection, hash: &[u8; 32]) -> Result<bool, ReviusError>
+/// Get the tree hash for a commit
+fn get_commit_tree(conn: &Connection, commit_hash: &[u8; 32]) -> Result<[u8; 32], ReviusError>
+/// Find commits matching a hash prefix. Returns Vec<[u8; 32]> of matching commit hashes
+fn find_commits_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<[u8; 32]>, ReviusError>
+/// Check if a hash matches a given prefix. hex_len is the number of hex characters in the original prefix (not bytes)
+fn hash_matches_prefix(hash: &[u8], prefix_bytes: &[u8], hex_len: usize) -> bool
+/// Resolve a hash prefix to exactly one commit hash. Returns error if prefix is ambiguous or matches no commits
+fn resolve_commit_prefix(conn: &Connection, prefix: &str) -> Result<[u8; 32], ReviusError>
 ```
 
 ### `db/authors.rs`
@@ -546,8 +650,14 @@ fn create_dir(path: &Path) -> io::Result<()>
 fn write_file(path: &Path, content: &str) -> io::Result<()>
 fn write_binary(path: &Path, content: &[u8]) -> io::Result<()>
 fn read_file(path: &Path) -> io::Result<Vec<u8>>
+fn delete_file(path: &Path) -> io::Result<()>
+/// Create directory and all parent directories
+fn create_dir_all(path: &Path) -> io::Result<()>
 fn get_file_modified_time(path: &Path) -> io::Result<i64>
 fn get_file_mode(path: &Path) -> io::Result<u32>
+fn set_file_mode(path: &Path, mode: u32) -> io::Result<()>
+/// Set file as executable (Unix only, no-op on Windows)
+fn set_executable(path: &Path) -> io::Result<()>
 ```
 
 ### `fs/paths.rs`
@@ -569,6 +679,7 @@ fn find_repo_root(start: &Path) -> Result<PathBuf, ReviusError>
 fn make_repo_relative(absolute_path: &Path, repo_root: &Path) -> Result<String, ReviusError>
 fn split_path(path: &str) -> Vec<&str>
 fn to_absolute(relative_path: &str, repo_root: &Path) -> PathBuf
+fn path_exists(path: &Path) -> bool
 ```
 
 ## utils
@@ -595,6 +706,10 @@ fn vec_to_hash(vec: &[u8]) -> Result<[u8; 32], String>
 fn hash_to_hex(hash: &[u8; 32]) -> String
 /// Used for display in messages
 fn hash_to_short_hex(hash: &[u8; 32]) -> String
+// Validate that a string is a valid hex prefix (1-64 hex chars)
+fn is_valid_hash_prefix(prefix: &str) -> bool
+/// Convert hex string to partial hash bytes (for prefix matching). Returns the bytes and the number of valid hex digits
+fn hex_prefix_to_bytes(prefix: &str) -> Result<(Vec<u8>, usize), String>
 ```
 
 ### `utils/recipe.rs`
@@ -653,6 +768,9 @@ enum Commands {
 
     #[command(about = "List, create, rename, or delete branches")]
     Branch(BranchArgs),
+
+    #[command(about = "Switch branches or restore working tree files")]
+    Switch(SwitchArgs),
 }
 
 #[derive(Parser)]
@@ -710,6 +828,18 @@ struct BranchArgs {
     #[arg(help = "New name when renaming (optional second argument)")]
     new_name: Option<String>,
 }
+
+#[derive(Parser)]
+struct SwitchArgs {
+    #[arg(help = "Branch name or commit hash to switch to")]
+    target: String,
+
+    #[arg(short = 'c', long, help = "Create new branch from current state and switch to it")]
+    create: bool,
+
+    #[arg(short = 'f', long, help = "Force switch, discarding local changes")]
+    force: bool,
+}
 ```
 
 ### `cli/ui.rs`
@@ -746,4 +876,7 @@ fn print_branch_deleted(branch_name: &str, commit_hash: &[u8; 32])
 fn print_current_branch(branch_name: &str)
 fn print_detached_head_branch_warning(commit_hash: &[u8; 32])
 fn print_no_branches()
+
+fn print_switch_success(previous: &HeadState, new: &HeadState, files_changed: usize, files_deleted: usize)
+fn print_branch_created_and_switched(branch_name: &str, commit_hash: &[u8; 32])
 ```

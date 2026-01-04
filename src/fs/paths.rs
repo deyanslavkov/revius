@@ -99,3 +99,7 @@ pub fn split_path(path: &str) -> Vec<&str> {
 pub fn to_absolute(relative_path: &str, repo_root: &Path) -> PathBuf {
     repo_root.join(relative_path)
 }
+
+pub fn path_exists(path: &Path) -> bool {
+    path.exists()
+}

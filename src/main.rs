@@ -13,6 +13,7 @@ fn main() {
         Commands::Status(args) => commands::status::run(args),
         Commands::Log(args) => commands::log::run(args),
         Commands::Branch(args) => commands::branch::run(args),
+        Commands::Switch(args) => commands::switch::run(args),
     };
 
     if let Err(e) = result {
