@@ -186,3 +186,53 @@ pub fn resolve_commit_prefix(
         _ => Err(ReviusError::AmbiguousHashPrefix(prefix.to_string())),
     }
 }
+
+/// Get all parent hashes for a commit (primary and merge parent if exists)
+pub fn get_commit_parents(
+    conn: &Connection,
+    commit_hash: &[u8; 32],
+) -> Result<Vec<[u8; 32]>, ReviusError> {
+    let mut stmt = conn
+        .prepare("SELECT parent_hash, merge_parent_hash FROM Commits WHERE hash = ?")
+        .map_err(|e| {
+            ReviusError::Db(format!(
+                "Failed to prepare query for commit parents (hash={}): {}",
+                hash::hash_to_short_hex(commit_hash),
+                e
+            ))
+        })?;
+
+    let mut parents = Vec::new();
+
+    let result = stmt.query_row([commit_hash.as_slice()], |row| {
+        let parent_hash: Option<Vec<u8>> = row.get(0)?;
+        let merge_parent_hash: Option<Vec<u8>> = row.get(1)?;
+        Ok((parent_hash, merge_parent_hash))
+    });
+
+    match result {
+        Ok((parent_hash, merge_parent_hash)) => {
+            if let Some(ph) = parent_hash {
+                parents.push(
+                    hash::vec_to_hash(&ph)
+                        .map_err(|e| ReviusError::Db(format!("Invalid parent hash: {}", e)))?,
+                );
+            }
+            if let Some(mph) = merge_parent_hash {
+                parents.push(
+                    hash::vec_to_hash(&mph)
+                        .map_err(|e| ReviusError::Db(format!("Invalid merge parent hash: {}", e)))?,
+                );
+            }
+            Ok(parents)
+        }
+        Err(rusqlite::Error::QueryReturnedNoRows) => {
+            Err(ReviusError::CommitNotFound(hash::hash_to_short_hex(commit_hash)))
+        }
+        Err(e) => Err(ReviusError::Db(format!(
+            "Failed to get commit parents (hash={}): {}",
+            hash::hash_to_short_hex(commit_hash),
+            e
+        ))),
+    }
+}

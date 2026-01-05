@@ -173,3 +173,42 @@ pub fn traverse_tree_recursive(
 
     Ok(())
 }
+
+/// Get the complete file tree for a commit as a flat map: path -> (file_hash, mode)
+/// Returns None for file_hash if the entry is a directory
+pub fn get_tree_snapshot(
+    conn: &Connection,
+    tree_hash: [u8; 32],
+) -> Result<BTreeMap<String, (Option<[u8; 32]>, u32)>, ReviusError> {
+    let mut snapshot = BTreeMap::new();
+    collect_tree_entries(conn, tree_hash, String::new(), &mut snapshot)?;
+    Ok(snapshot)
+}
+
+/// Recursively collect all tree entries into a flat map
+pub fn collect_tree_entries(
+    conn: &Connection,
+    parent_hash: [u8; 32],
+    current_path: String,
+    snapshot: &mut BTreeMap<String, (Option<[u8; 32]>, u32)>,
+) -> Result<(), ReviusError> {
+    let entries = db::trees::get_tree_entries(conn, &parent_hash)?;
+
+    for entry in entries {
+        let full_path = if current_path.is_empty() {
+            entry.name.clone()
+        } else {
+            format!("{}/{}", current_path, entry.name)
+        };
+
+        if entry.is_dir {
+            // It's a directory - recurse
+            collect_tree_entries(conn, entry.object_hash, full_path.clone(), snapshot)?;
+        } else {
+            // It's a file - add to snapshot
+            snapshot.insert(full_path, (Some(entry.object_hash), entry.mode));
+        }
+    }
+
+    Ok(())
+}

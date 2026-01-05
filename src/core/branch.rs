@@ -5,11 +5,11 @@ use crate::error::ReviusError;
 use crate::utils::{hash, validation};
 use rusqlite::Transaction;
 
-fn branch_ref_path(branch_name: &str) -> String {
+pub fn branch_ref_path(branch_name: &str) -> String {
     format!("refs/heads/{}", branch_name)
 }
 
-fn extract_branch_name(ref_path: &str) -> Result<String, ReviusError> {
+pub fn extract_branch_name(ref_path: &str) -> Result<String, ReviusError> {
     ref_path
         .strip_prefix("refs/heads/")
         .ok_or_else(|| ReviusError::Db(format!("Invalid branch ref path: {}", ref_path)))
