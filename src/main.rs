@@ -3,7 +3,7 @@ use revius::cli::args::{Cli, Commands};
 use revius::cli::ui;
 use revius::commands;
 
-fn main() {
+pub fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
@@ -14,6 +14,7 @@ fn main() {
         Commands::Log(args) => commands::log::run(args),
         Commands::Branch(args) => commands::branch::run(args),
         Commands::Switch(args) => commands::switch::run(args),
+        Commands::Merge(args) => commands::merge::run(args),
     };
 
     if let Err(e) = result {
