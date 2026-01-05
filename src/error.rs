@@ -62,6 +62,9 @@ pub enum ReviusError {
 
     #[error("Invalid hash prefix '{0}': must be 1-64 hex characters")]
     InvalidHashPrefix(String),
+
+    #[error("Merge error: {0}")]
+    MergeError(String),
 }
 
 impl ReviusError {
