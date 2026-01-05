@@ -38,6 +38,7 @@ fn main() {
         Commands::Log(args) => commands::log::run(args),
         Commands::Branch(args) => commands::branch::run(args),
         Commands::Switch(args) => commands::switch::run(args),
+        Commands::Merge(args) => commands::merge::run(args),
     };
 
     if let Err(e) = result {
@@ -114,6 +115,9 @@ enum ReviusError {
 
     #[error("Invalid hash prefix '{0}': must be 1-64 hex characters")]
     InvalidHashPrefix(String),
+
+    #[error("Merge error: {0}")]
+    MergeError(String),
 }
 
 impl ReviusError {
@@ -209,6 +213,20 @@ fn handle_delete(repo: &Repository, args: BranchArgs, force: bool) -> Result<(),
 fn run(args: SwitchArgs) -> Result<(), ReviusError>
 ```
 
+### `commands/merge.rs`
+
+```rust
+fn run(args: MergeArgs) -> Result<(), ReviusError> {
+    let current_dir = fs::paths::get_current_dir()?;
+    let repo = core::open::open_repository(&current_dir)?;
+    let (_, target_commit) = resolve_target(&repo.conn, &args.target)?;
+    match core::merge::perform_merge(&repo, target_commit)? {
+        // (...)
+    }
+    Ok(())
+}
+```
+
 ## core
 
 ### `core/config.rs`
@@ -287,6 +305,10 @@ fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], Reviu
 fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32]) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
 /// Helper function for recursive tree traversal
 fn traverse_tree_recursive(conn: &Connection, parent_hash: &[u8; 32], current_path: &str, result: &mut BTreeMap<String, [u8; 32]>) -> Result<(), ReviusError>
+/// Get the complete file tree for a commit as a flat map: path -> (file_hash, mode). Returns None for file_hash if the entry is a directory
+fn get_tree_snapshot(conn: &Connection, tree_hash: [u8; 32]) -> Result<BTreeMap<String, (Option<[u8; 32]>, u32)>, ReviusError>
+/// Recursively collect all tree entries into a flat map
+fn collect_tree_entries(conn: &Connection, parent_hash: [u8; 32], current_path: String, snapshot: &mut BTreeMap<String, (Option<[u8; 32]>, u32)>) -> Result<(), ReviusError>
 ```
 
 ### `core/refs.rs`
@@ -380,6 +402,25 @@ fn update_staging_from_tree(tx: &rusqlite::Transaction, tree_hash: [u8; 32]) -> 
 /// Format target type and name for user-facing messages.
 /// Returns "branch 'name'" or "commit 'hash'".
 fn format_target_name(target_type: &TargetType, target: &str) -> String
+```
+
+### `core/merge.rs`
+
+```rust
+/// Perform a merge of target_commit into current HEAD
+fn perform_merge(repo: &Repository, target_commit: [u8; 32]) -> Result<MergeResult, ReviusError>
+/// Perform a fast-forward merge by updating HEAD to target
+fn perform_fast_forward(repo: &Repository, from: [u8; 32], to: [u8; 32]) -> Result<MergeResult, ReviusError>
+/// Perform a three-way merge creating a merge commit
+fn perform_three_way_merge(repo: &Repository, our_commit: [u8; 32], their_commit: [u8; 32], base_commit: [u8; 32]) -> Result<MergeResult, ReviusError>
+/// Three-way merge algorithm. Returns Ok(merged_files) or Err(conflicts)
+fn three_way_merge(
+    base_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
+    our_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
+    their_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
+    ) -> Result<Vec<(String, [u8; 32], u32)>, Vec<MergeConflict>>
+/// Find the lowest common ancestor (merge base) of two commits using bidirectional BFS
+fn find_merge_base(conn: &Connection, commit1: [u8; 32], commit2: [u8; 32]) -> Result<Option<[u8; 32]>, ReviusError>
 ```
 
 ## core/models
@@ -586,6 +627,8 @@ fn find_commits_by_prefix(conn: &Connection, prefix: &str) -> Result<Vec<[u8; 32
 fn hash_matches_prefix(hash: &[u8], prefix_bytes: &[u8], hex_len: usize) -> bool
 /// Resolve a hash prefix to exactly one commit hash. Returns error if prefix is ambiguous or matches no commits
 fn resolve_commit_prefix(conn: &Connection, prefix: &str) -> Result<[u8; 32], ReviusError>
+/// Get all parent hashes for a commit (primary and merge parent if exists)
+fn get_commit_parents(conn: &Connection, commit_hash: &[u8; 32]) -> Result<Vec<[u8; 32]>, ReviusError>
 ```
 
 ### `db/authors.rs`
@@ -771,6 +814,9 @@ enum Commands {
 
     #[command(about = "Switch branches or restore working tree files")]
     Switch(SwitchArgs),
+
+    #[command(about = "Join two development histories together")]
+    Merge(MergeArgs),
 }
 
 #[derive(Parser)]
@@ -840,6 +886,12 @@ struct SwitchArgs {
     #[arg(short = 'f', long, help = "Force switch, discarding local changes")]
     force: bool,
 }
+
+#[derive(Parser)]
+struct MergeArgs {
+    #[arg(help = "Branch name or commit hash to merge")]
+    target: String,
+}
 ```
 
 ### `cli/ui.rs`
@@ -879,4 +931,9 @@ fn print_no_branches()
 
 fn print_switch_success(previous: &HeadState, new: &HeadState, files_changed: usize, files_deleted: usize)
 fn print_branch_created_and_switched(branch_name: &str, commit_hash: &[u8; 32])
+
+fn print_merge_fast_forward(from: &[u8; 32], to: &[u8; 32])
+fn print_merge_already_up_to_date()
+fn print_merge_success(commit_hash: &[u8; 32], files_changed: usize)
+fn print_merge_conflicts(conflicts: &[MergeConflict])
 ```
