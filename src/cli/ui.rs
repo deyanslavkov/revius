@@ -4,6 +4,7 @@ use crate::utils;
 use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, HeadState};
 use crate::utils::hash::hash_to_short_hex;
 use crate::utils::{hash, time};
+use crate::core::merge::{ConflictType, MergeConflict};
 
 pub fn print_init_success(path: &Path) {
     println!(
@@ -168,7 +169,7 @@ pub fn print_log(commits: &[CommitInfo], options: &LogOptions) {
     }
 }
 
-fn print_commit_detailed(commit: &CommitInfo) {
+pub fn print_commit_detailed(commit: &CommitInfo) {
     print!("commit {}", hash::hash_to_hex(&commit.hash));
 
     if !commit.refs.is_empty() {
@@ -209,7 +210,7 @@ fn print_commit_detailed(commit: &CommitInfo) {
     println!();
 }
 
-fn print_commit_oneline(commit: &CommitInfo) {
+pub fn print_commit_oneline(commit: &CommitInfo) {
     let short_hash = hash::hash_to_short_hex(&commit.hash);
 
     let message_first_line = commit.message.lines().next().unwrap_or("");
@@ -231,7 +232,7 @@ fn print_commit_oneline(commit: &CommitInfo) {
 }
 
 /// For now implements a simple linear graph. Future enhancement: proper graph with branches
-fn print_commit_graph(commits: &[CommitInfo], oneline: bool) {
+pub fn print_commit_graph(commits: &[CommitInfo], oneline: bool) {
     for (i, commit) in commits.iter().enumerate() {
         let short_hash = hash::hash_to_short_hex(&commit.hash);
         let message_first_line = commit.message.lines().next().unwrap_or("");
@@ -372,4 +373,42 @@ pub fn print_branch_created_and_switched(branch_name: &str, commit_hash: &[u8; 3
         branch_name,
         hash::hash_to_short_hex(commit_hash)
     );
+}
+
+pub fn print_merge_fast_forward(from: &[u8; 32], to: &[u8; 32]) {
+    println!(
+        "Fast-forward merge from {} to {}",
+        crate::utils::hash::hash_to_short_hex(from),
+        crate::utils::hash::hash_to_short_hex(to)
+    );
+}
+
+pub fn print_merge_already_up_to_date() {
+    println!("Already up to date.");
+}
+
+pub fn print_merge_success(commit_hash: &[u8; 32], files_changed: usize) {
+    println!(
+        "Merge commit created: {} ({} file(s) in merged tree)",
+        crate::utils::hash::hash_to_short_hex(commit_hash),
+        files_changed
+    );
+}
+
+pub fn print_merge_conflicts(conflicts: &[MergeConflict]) {
+    eprintln!("Merge conflicts detected in {} file(s):", conflicts.len());
+    eprintln!();
+    
+    for conflict in conflicts {
+        let conflict_desc = match conflict.conflict_type {
+            ConflictType::BothModified => "both modified",
+            ConflictType::DeletedByUsModifiedByThem => "deleted by us, modified by them",
+            ConflictType::DeletedByThemModifiedByUs => "deleted by them, modified by us",
+            ConflictType::BothAdded => "both added (different content)",
+        };
+        eprintln!("  {} ({})", conflict.path, conflict_desc);
+    }
+    
+    eprintln!();
+    eprintln!("Automatic merge failed. Please resolve conflicts manually.");
 }

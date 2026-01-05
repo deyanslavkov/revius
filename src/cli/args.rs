@@ -31,6 +31,9 @@ pub enum Commands {
 
     #[command(about = "Switch branches or restore working tree files")]
     Switch(SwitchArgs),
+
+    #[command(about = "Join two development histories together")]
+    Merge(MergeArgs),
 }
 
 #[derive(Parser)]
@@ -99,4 +102,10 @@ pub struct SwitchArgs {
 
     #[arg(short = 'f', long, help = "Force switch, discarding local changes")]
     pub force: bool,
+}
+
+#[derive(Parser)]
+pub struct MergeArgs {
+    #[arg(help = "Branch name or commit hash to merge")]
+    pub target: String,
 }

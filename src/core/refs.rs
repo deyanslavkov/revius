@@ -46,7 +46,7 @@ pub fn update_head(tx: &Transaction, commit_hash: &[u8; 32]) -> Result<(), Reviu
 }
 
 /// Infer ref type from ref path
-fn infer_ref_type(ref_path: &str) -> Result<u8, ReviusError> {
+pub fn infer_ref_type(ref_path: &str) -> Result<u8, ReviusError> {
     if ref_path.starts_with("refs/heads/") {
         Ok(REF_TYPE_BRANCH)
     } else if ref_path.starts_with("refs/tags/") {

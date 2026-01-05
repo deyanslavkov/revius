@@ -170,7 +170,8 @@ When implementing features, never hardcode logic that belongs in another module.
 
 ## When to Create New Functions
 
-Create functions in existing modules when:
+Create functions/other things in existing modules when:
+- core/models/objects.rs: You need a new struct or enum type that might be used by other core components.
 - db/: You need a new database operation (query, insert, update, delete)
 - fs/: You need filesystem operations or path manipulations (anything touching the outer world)
 - utils/: You need pure data transformations or algorithm wrappers, or you need to use utilities provided by the system (create wrappers for them here)
@@ -186,6 +187,8 @@ Create helper functions within the same file when:
 Create files in core/ when:
 - The logic is complex domain logic that will be reused across commands
 - Example: Building a tree from staging needs to be used by commit, status, diff...
+
+Make sure to use the functions that already exist if you need the functionality, rather than reinventing them!
 
 ## Decision Tree
 
