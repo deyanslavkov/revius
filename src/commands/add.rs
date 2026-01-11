@@ -10,6 +10,7 @@ pub fn run(args: AddArgs) -> Result<(), ReviusError> {
 
     let repo = core::open::open_repository(&current_dir)?;
 
+    // These are the scopes the user explicitly asked for
     let mut canonical_paths = Vec::new();
     for path in args.paths {
         let canonical = fs::paths::canonicalize(&path)
@@ -18,12 +19,17 @@ pub fn run(args: AddArgs) -> Result<(), ReviusError> {
     }
 
     let ignore_path = fs::paths::get_repo_ignore_path(&repo.root);
-    let file_paths = fs::walk::expand_paths(canonical_paths, &repo.root, &ignore_path)?;
+    
+    // These are the actual existing files found within those scopes
+    // Note: If a file was deleted, it won't appear here.
+    let found_files = fs::walk::expand_paths(canonical_paths.clone(), &repo.root, &ignore_path)?;
 
-    let results = core::add::stage_files(&repo, file_paths)?;
+    // We pass both: found_files (to add/modify) and canonical_paths (to check for deletions)
+    let results = core::add::stage_files(&repo, found_files, canonical_paths)?;
 
     let mut added_count = 0;
     let mut modified_count = 0;
+    let mut deleted_count = 0;
     let mut unchanged_count = 0;
     let mut total_blobs = 0;
 
@@ -42,13 +48,17 @@ pub fn run(args: AddArgs) -> Result<(), ReviusError> {
                 modified_count += 1;
                 total_blobs += blobs;
             }
+            core::add::StageOutcome::Deleted => {
+                ui::print_deleted_file(&repo_relative);
+                deleted_count += 1;
+            }
             core::add::StageOutcome::Unchanged => {
                 unchanged_count += 1;
             }
         }
     }
 
-    ui::print_add_summary(added_count + modified_count, unchanged_count, total_blobs);
+    ui::print_add_summary(added_count, modified_count, deleted_count, unchanged_count, total_blobs);
 
     Ok(())
 }
