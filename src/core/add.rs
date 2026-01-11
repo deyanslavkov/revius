@@ -10,6 +10,7 @@ use std::path::PathBuf;
 pub enum StageOutcome {
     Added { blobs: u64 },
     Modified { blobs: u64 },
+    Deleted,
     Unchanged,
 }
 
@@ -50,16 +51,52 @@ pub fn stage_single_file(tx: &Transaction, repo: &Repository, path: &PathBuf)
     Ok((path.clone(), outcome))
 }
 
-pub fn stage_files(repo: &Repository, paths: Vec<PathBuf>)
+/// Stages files.
+/// `found_files`: The list of files that currently exist on disk (result of expanding user paths).
+/// `search_scopes`: The original paths provided by the user (to check for deletions within these folders).
+pub fn stage_files(repo: &Repository, found_files: Vec<PathBuf>, search_scopes: Vec<PathBuf>)
 -> Result<Vec<(PathBuf, StageOutcome)>, ReviusError> {
     let mut results = Vec::new();
     
     let tx = repo.conn.unchecked_transaction()
         .map_err(|e| ReviusError::Db(format!("Failed to start transaction for staging: {}", e)))?;
 
-    for path in paths {
+    // 1. Handle Additions and Modifications (Files that exist)
+    for path in found_files {
         let result = stage_single_file(&tx, repo, &path)?;
         results.push(result);
+    }
+
+    // 2. Handle Deletions
+    // We get all currently staged files, and check if they fall under the search_scopes
+    // but no longer exist on disk.
+    let all_staged = db::staging::get_all_staged(&repo.conn)?;
+    
+    // Pre-calculate relative scopes to avoid doing it in the loop
+    let mut relative_scopes = Vec::new();
+    for scope in &search_scopes {
+        if let Ok(rel) = fs::paths::make_repo_relative(scope, &repo.root) {
+            relative_scopes.push(rel);
+        }
+    }
+
+    for staged in all_staged {
+        // Check if this staged file belongs to one of the user's requested scopes
+        let in_scope = relative_scopes.iter().any(|scope| {
+            // Precise match (user added specific file) OR directory match (staged file is inside user dir)
+            staged.path == *scope || (staged.path.starts_with(scope) && staged.path.chars().nth(scope.len()) == Some('/'))
+        });
+
+        if in_scope {
+            // Construct absolute path to check existence
+            let abs_path = fs::paths::to_absolute(&staged.path, &repo.root);
+            
+            // If it doesn't exist on disk, we remove it from staging
+            if !fs::paths::path_exists(&abs_path) {
+                db::staging::remove_staged_file(&tx, &staged.path)?;
+                results.push((abs_path, StageOutcome::Deleted));
+            }
+        }
     }
 
     tx.commit()
