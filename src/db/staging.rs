@@ -1,6 +1,6 @@
 use crate::core::models::objects::StagedFile;
 use crate::error::ReviusError;
-use rusqlite::{Transaction, Connection};
+use rusqlite::{params, Transaction, Connection};
 
 /// Returns StagedFile by repo-relative path
 pub fn get_staged_file(tx: &Transaction, path: &str) -> Result<Option<StagedFile>, ReviusError> {
@@ -77,6 +77,14 @@ pub fn get_all_staged(conn: &Connection) -> Result<Vec<StagedFile>, ReviusError>
     }
 
     Ok(files)
+}
+
+pub fn remove_staged_file(tx: &Transaction, path: &str) -> Result<(), ReviusError> {
+    tx.execute(
+        "DELETE FROM Staging WHERE path = ?1",
+        params![path],
+    ).map_err(|e| ReviusError::Db(format!("Failed to remove file from staging: {}", e)))?;
+    Ok(())
 }
 
 pub fn clear_staging(conn: &Transaction) -> Result<(), ReviusError> {
