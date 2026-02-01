@@ -2,6 +2,7 @@ use crate::core::models::repository::Repository;
 use crate::core::models::objects::{SwitchResult, HeadState, SwitchPlan};
 use crate::core::resolve::{resolve_target, ResolvedTarget};
 use crate::core::refs::{self as core_refs};
+use crate::core::tree::get_all_files_in_tree;
 use crate::db;
 use crate::error::ReviusError;
 use crate::fs;
@@ -246,7 +247,7 @@ pub fn build_switch_plan(
 ) -> Result<SwitchPlan, ReviusError> {
     // Get files in current tree (if exists)
     let current_files: HashMap<String, ([u8; 32], u32)> = if let Some(tree_hash) = current_tree {
-        let files = db::trees::get_all_files_in_tree(conn, &tree_hash)?;
+        let files = get_all_files_in_tree(conn, &tree_hash)?;
         files.into_iter()
             .map(|(path, hash, mode, _size)| (path, (hash, mode)))
             .collect()
@@ -255,7 +256,7 @@ pub fn build_switch_plan(
     };
     
     // Get files in target tree
-    let target_files_vec = db::trees::get_all_files_in_tree(conn, &target_tree)?;
+    let target_files_vec = get_all_files_in_tree(conn, &target_tree)?;
     let target_files: HashMap<String, ([u8; 32], u32)> = target_files_vec.iter()
         .map(|(path, hash, mode, _size)| (path.clone(), (*hash, *mode)))
         .collect();
@@ -319,7 +320,7 @@ pub fn update_staging_from_tree(
     tx: &rusqlite::Transaction,
     tree_hash: [u8; 32],
 ) -> Result<(), ReviusError> {
-    let files = db::trees::get_all_files_in_tree(tx, &tree_hash)?;
+    let files = get_all_files_in_tree(tx, &tree_hash)?;
     
     // Use current timestamp for all staged files since they'll be written to disk after this transaction
     let current_time = crate::utils::time::unix_timestamp()

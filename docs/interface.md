@@ -301,14 +301,14 @@ impl TreeNode {
 fn build_tree_from_files(files: Vec<StagedFile>) -> Result<TreeNode, ReviusError>
 /// Recursively write tree entries to database and return parent_hash
 fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], ReviusError>
-/// Recursively traverse a tree and return all file paths with their hashes. Returns a map of repo-relative path -> file_hash for all files in the tree
+/// Returns a map of repo-relative path -> file_hash for all files in the tree
 fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32]) -> Result<BTreeMap<String, [u8; 32]>, ReviusError>
-/// Helper function for recursive tree traversal
-fn traverse_tree_recursive(conn: &Connection, parent_hash: &[u8; 32], current_path: &str, result: &mut BTreeMap<String, [u8; 32]>) -> Result<(), ReviusError>
 /// Get the complete file tree for a commit as a flat map: path -> (file_hash, mode). Returns None for file_hash if the entry is a directory
 fn get_tree_snapshot(conn: &Connection, tree_hash: [u8; 32]) -> Result<BTreeMap<String, (Option<[u8; 32]>, u32)>, ReviusError>
-/// Recursively collect all tree entries into a flat map
-fn collect_tree_entries(conn: &Connection, parent_hash: [u8; 32], current_path: String, snapshot: &mut BTreeMap<String, (Option<[u8; 32]>, u32)>) -> Result<(), ReviusError>
+/// Get all file entries from a tree (recursively) for staging reconstruction. Returns Vec<(relative_path, file_hash, mode, size)>
+pub fn get_all_files_in_tree(conn: &Connection, tree_hash: &[u8; 32]) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError>
+/// Generic recursive tree walker. Visits every node and calls `callback`. Recurses automatically for directories.
+fn walk_tree<F>(conn: &Connection, parent_hash: &[u8; 32], path_prefix: &str, callback: &mut F) -> Result<(), ReviusError> where F: FnMut(&str, &TreeEntry) -> Result<(), ReviusError>
 ```
 
 ### `core/refs.rs`
@@ -604,12 +604,10 @@ fn clear_staging(conn: &Transaction) -> Result<(), ReviusError>
 ```rust
 fn tree_exists(conn: &Connection, parent_hash: &[u8; 32]) -> Result<bool, ReviusError>
 fn insert_tree_entry(tx: &Transaction, parent_hash: &[u8; 32], name: &str, object_hash: &[u8; 32], mode: u32, is_dir: bool) -> Result<(), ReviusError>
-/// Efficient batch insert by optimizing the query
+/// Efficient batch insert
 fn batch_insert_tree_entries(tx: &Transaction, entries: Vec<TreeEntry>) -> Result<(), ReviusError>
 /// Get all direct children of a tree node (one level only)
 fn get_tree_entries(conn: &Connection, parent_hash: &[u8; 32]) -> Result<Vec<TreeEntry>, ReviusError>
-/// Get all file entries from a tree (recursively) for staging reconstruction. Returns Vec<(relative_path, file_hash, mode, size)>
-fn get_all_files_in_tree(conn: &Connection, tree_hash: &[u8; 32]) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError>
 fn get_file_size(conn: &Connection, file_hash: &[u8; 32]) -> Result<u64, ReviusError>
 ```
 
