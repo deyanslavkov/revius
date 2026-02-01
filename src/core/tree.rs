@@ -148,8 +148,7 @@ pub fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32])
     Ok(result)
 }
 
-/// Helper function for recursive tree traversal
-pub fn traverse_tree_recursive(
+fn traverse_tree_recursive(
     conn: &Connection,
     parent_hash: &[u8; 32],
     current_path: &str,
@@ -185,8 +184,7 @@ pub fn get_tree_snapshot(
     Ok(snapshot)
 }
 
-/// Recursively collect all tree entries into a flat map
-pub fn collect_tree_entries(
+fn collect_tree_entries(
     conn: &Connection,
     parent_hash: [u8; 32],
     current_path: String,
@@ -203,12 +201,50 @@ pub fn collect_tree_entries(
 
         if entry.is_dir {
             // It's a directory - recurse
-            collect_tree_entries(conn, entry.object_hash, full_path.clone(), snapshot)?;
+            collect_tree_entries(conn, entry.object_hash, full_path, snapshot)?;
         } else {
             // It's a file - add to snapshot
             snapshot.insert(full_path, (Some(entry.object_hash), entry.mode));
         }
     }
 
+    Ok(())
+}
+
+/// Get all file entries from a tree (recursively) for staging reconstruction. 
+/// Returns Vec<(relative_path, file_hash, mode, size)>
+pub fn get_all_files_in_tree(
+    conn: &Connection,
+    tree_hash: &[u8; 32],
+) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError> {
+    let mut results = Vec::new();
+    collect_files_recursive(conn, tree_hash, "", &mut results)?;
+    Ok(results)
+}
+
+fn collect_files_recursive(
+    conn: &Connection,
+    parent_hash: &[u8; 32],
+    prefix: &str,
+    results: &mut Vec<(String, [u8; 32], u32, u64)>,
+) -> Result<(), ReviusError> {
+    let entries = db::trees::get_tree_entries(conn, parent_hash)?;
+
+    for entry in entries {
+        let full_path = if prefix.is_empty() {
+            entry.name.clone()
+        } else {
+            format!("{}/{}", prefix, entry.name)
+        };
+
+        if entry.is_dir {
+            collect_files_recursive(conn, &entry.object_hash, &full_path, results)?;
+        } else {
+            // Fetch size for files to support staging reconstruction
+            let size = db::trees::get_file_size(conn, &entry.object_hash)?;
+            results.push((full_path, entry.object_hash, entry.mode, size));
+        }
+    }
+    
     Ok(())
 }
