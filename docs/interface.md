@@ -150,7 +150,7 @@ fn run(args: InitArgs) -> Result<(), ReviusError> {
 ```rust
 fn run(args: AddArgs) -> Result<(), ReviusError> {
     // (...)
-    let results = core::add::stage_files(&repo, file_paths)?;
+    let results = core::add::stage_files(&repo, found_files, canonical_paths)?;
     // (...)
     ui::print_add_summary(added_count + modified_count, unchanged_count, total_blobs);
     Ok(())
@@ -251,9 +251,9 @@ fn open_repository(start_path: &Path) -> Result<Repository, ReviusError>
 ### `core/add.rs`
 
 ```rust
-enum StageOutcome {Added { blobs: u64 }, Modified { blobs: u64 }, Unchanged}
+enum StageOutcome {Added { blobs: u64 }, Modified { blobs: u64 }, Deleted, Unchanged}
 fn stage_single_file(tx: &Transaction, repo: &Repository, path: &PathBuf) -> Result<(PathBuf, StageOutcome), ReviusError>
-fn stage_files(repo: &Repository, paths: Vec<PathBuf>) -> Result<Vec<(PathBuf, StageOutcome)>, ReviusError>
+fn stage_files(repo: &Repository, found_files: Vec<PathBuf>, search_scopes: Vec<PathBuf>) -> Result<Vec<(PathBuf, StageOutcome)>, ReviusError>
 ```
 
 ### `core/content.rs`
@@ -595,6 +595,7 @@ fn get_file(conn: &Connection, file_hash: &[u8; 32]) -> Result<FileInfo, ReviusE
 fn get_staged_file(tx: &Transaction, path: &str) -> Result<Option<StagedFile>, ReviusError>
 fn upsert_staging(tx: &Transaction, path: &str, hash: &[u8; 32], mode: u32, size: u64, modified_at: i64) -> Result<(), ReviusError>
 fn get_all_staged(conn: &Connection) -> Result<Vec<StagedFile>, ReviusError>
+fn remove_staged_file(tx: &Transaction, path: &str) -> Result<(), ReviusError>
 fn clear_staging(conn: &Transaction) -> Result<(), ReviusError>
 ```
 
@@ -898,13 +899,15 @@ struct MergeArgs {
 
 ```rust
 fn print_error(msg: &str)
+pub fn print_warn(msg: &str)
 fn print_no_user_configured()
 
 fn print_init_success(path: &Path)
 
 fn print_added_file(path: &str)
 fn print_modified_file(path: &str)
-fn print_add_summary(added: u64, skipped: u64, blobs: u64)
+pub fn print_deleted_file(path: &str)
+fn print_add_summary(added: u64, changed: u64, deleted: u64, unchanged: u64, blobs: u64)
 
 fn print_commit_success(hash: &[u8; 32], message: &str, files_changed: usize)
 fn print_nothing_to_commit()
