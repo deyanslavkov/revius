@@ -137,8 +137,6 @@ pub fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], R
     }
 }
 
-// --- Traversal Wrappers ---
-
 /// Returns a map of repo-relative path -> file_hash for all files in the tree
 pub fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32])
 -> Result<BTreeMap<String, [u8; 32]>, ReviusError> {
@@ -191,8 +189,6 @@ pub fn get_all_files_in_tree(
 
     Ok(results)
 }
-
-// --- The Single Recursion Engine ---
 
 /// Generic recursive tree walker.
 /// Visits every node and calls `callback`. Recurses automatically for directories.
