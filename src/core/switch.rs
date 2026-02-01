@@ -1,5 +1,6 @@
 use crate::core::models::repository::Repository;
 use crate::core::models::objects::{SwitchResult, HeadState, TargetType, SwitchPlan};
+use crate::core::resolve;
 use crate::db;
 use crate::error::ReviusError;
 use crate::fs;
@@ -195,7 +196,7 @@ pub fn resolve_target(conn: &Connection, target: &str) -> Result<(TargetType, [u
     
     // Try as hash prefix (1-63 hex chars)
     if utils::hash::is_valid_hash_prefix(target) && target.len() < 64 {
-        match db::commits::resolve_commit_prefix(conn, target) {
+        match resolve::resolve_commit_hash(conn, target) {
             Ok(hash) => return Ok((TargetType::Commit, hash)),
             Err(e) => return Err(e), // Propagate AmbiguousHashPrefix, CommitNotFound, etc.
         }

@@ -1,6 +1,7 @@
 pub mod models;
 pub mod config;
 pub mod open;
+pub mod resolve;
 
 pub mod content;
 pub mod tree;
