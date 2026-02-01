@@ -51,7 +51,7 @@ pub fn stage_single_file(tx: &Transaction, repo: &Repository, path: &PathBuf)
     Ok((path.clone(), outcome))
 }
 
-/// Stages files.
+/// Stages files and detects deletions.
 /// `found_files`: The list of files that currently exist on disk (result of expanding user paths).
 /// `search_scopes`: The original paths provided by the user (to check for deletions within these folders).
 pub fn stage_files(repo: &Repository, found_files: Vec<PathBuf>, search_scopes: Vec<PathBuf>)
@@ -68,11 +68,9 @@ pub fn stage_files(repo: &Repository, found_files: Vec<PathBuf>, search_scopes: 
     }
 
     // 2. Handle Deletions
-    // We get all currently staged files, and check if they fall under the search_scopes
-    // but no longer exist on disk.
     let all_staged = db::staging::get_all_staged(&repo.conn)?;
     
-    // Pre-calculate relative scopes to avoid doing it in the loop
+    // Pre-calculate relative scopes
     let mut relative_scopes = Vec::new();
     for scope in &search_scopes {
         if let Ok(rel) = fs::paths::make_repo_relative(scope, &repo.root) {
@@ -83,12 +81,21 @@ pub fn stage_files(repo: &Repository, found_files: Vec<PathBuf>, search_scopes: 
     for staged in all_staged {
         // Check if this staged file belongs to one of the user's requested scopes
         let in_scope = relative_scopes.iter().any(|scope| {
-            // Precise match (user added specific file) OR directory match (staged file is inside user dir)
-            staged.path == *scope || (staged.path.starts_with(scope) && staged.path.chars().nth(scope.len()) == Some('/'))
+            // Case 1: Scope is root (empty string) - EVERYTHING is in scope
+            if scope.is_empty() {
+                return true;
+            }
+            // Case 2: Exact match (user added this specific file)
+            if staged.path == *scope {
+                return true;
+            }
+            // Case 3: Directory prefix (file is inside the added directory)
+            // We check for the separator to avoid matching "file" against scope "f"
+            staged.path.starts_with(scope) && staged.path.chars().nth(scope.len()) == Some('/')
         });
 
         if in_scope {
-            // Construct absolute path to check existence
+            // Construct absolute path to check existence on disk
             let abs_path = fs::paths::to_absolute(&staged.path, &repo.root);
             
             // If it doesn't exist on disk, we remove it from staging
