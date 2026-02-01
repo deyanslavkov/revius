@@ -536,7 +536,7 @@ The Staging table represents the next commit's snapshot:
 4. At commit time:
    - Build Trees bottom-up from staged file paths
    - Retain Staging after successful commit
-5. Deleted files: must be explicitly removed from Staging (future: `rm` command)
+5. Deleted files: must be explicitly removed from Staging (add handles this)
 6. Modified files not re-added remain at old version in Staging
 7. Unstaged changes: compare working tree vs Staging for `status`
 

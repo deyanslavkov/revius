@@ -10,6 +10,7 @@ use crate::utils;
 use rusqlite::Connection;
 use std::collections::{HashMap, HashSet};
 
+/// Switch to a branch or commit. Updates HEAD, staging, and working directory.
 pub fn switch_to_target(
     repo: &Repository,
     target: &str,
@@ -27,33 +28,26 @@ pub fn switch_to_target(
     let target_commit = resolved_target.hash();
     
     // Check if already on target
-    // If we are on a branch, and the target is that branch name
-    if let HeadState::Branch(ref current_name, _) = previous_head {
-        if let ResolvedTarget::Branch(ref target_name, _) = resolved_target {
-            if current_name == target_name {
-                 return Err(ReviusError::Usage(
+    match (&previous_head, &resolved_target) {
+        (HeadState::Branch(current_name, _), ResolvedTarget::Branch(target_name, _)) 
+            if current_name == target_name => {
+                return Err(ReviusError::Usage(
                     format!("Already on {}", format_target_name(&resolved_target))
                 ));
-            }
-        }
-    }
-    // If we are detached, and switching to the same commit hash
-    if let HeadState::Detached(current_hash) = previous_head {
-        if current_hash == target_commit {
-             // Note: Git allows "checking out" the same commit again to refresh files, 
-             // but for now we block it to avoid confusion unless we want to support --force for that.
-             // If target was a branch name, we proceed (attaching HEAD). 
-             // If target was a hash/tag, we are already there.
-             if let ResolvedTarget::Commit(_) = resolved_target {
-                 return Err(ReviusError::Usage(
+        },
+        (HeadState::Detached(current_hash), ResolvedTarget::Commit(_)) 
+            if *current_hash == target_commit => {
+                return Err(ReviusError::Usage(
                     format!("Already on {}", format_target_name(&resolved_target))
                 ));
-             }
-        }
+        },
+        _ => {}
     }
     
     // Check for uncommitted changes if not force
     if !force {
+        // This check is strict: it blocks if ANY file is modified or untracked.
+        // Future improvement: Only block if specific files conflict with the checkout.
         let has_changes = check_uncommitted_changes(repo)?;
         if has_changes {
             return Err(ReviusError::UncommittedChanges);
@@ -71,6 +65,7 @@ pub fn switch_to_target(
     let plan = build_switch_plan(&repo.conn, current_tree, target_tree)?;
     
     // Phase 3: Database Transaction
+    // We update the DB first. If this succeeds, the repo is officially "switched".
     let tx = repo.conn.unchecked_transaction()
         .map_err(|e| ReviusError::Db(format!("Failed to begin transaction: {}", e)))?;
     
@@ -85,7 +80,6 @@ pub fn switch_to_target(
     };
     
     // Insert reflog entry
-    // We use the raw target string from the resolved target for the log
     let target_display = match &resolved_target {
         ResolvedTarget::Branch(name, _) => name.clone(),
         ResolvedTarget::Commit(hash) => utils::hash::hash_to_hex(hash),
@@ -101,7 +95,7 @@ pub fn switch_to_target(
         &action,
     )?;
     
-    // Clear and rebuild staging
+    // Clear and rebuild staging area to match the target commit
     db::staging::clear_staging(&tx)?;
     update_staging_from_tree(&tx, target_tree)?;
     
@@ -109,9 +103,8 @@ pub fn switch_to_target(
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
     
     // Phase 4: Apply Workspace Changes
-    // Note: If this fails, DB is already committed. This is acceptable because:
-    // - DB integrity is maintained
-    // - User can manually fix working directory or re-run switch with --force
+    // The DB state is now consistent with the target. We now update the files.
+    // If this fails, the user is on the new branch but with a "dirty" workspace (files didn't update).
     let (files_changed, files_deleted) = apply_workspace_changes(repo, &plan)?;
     
     // Phase 5: Return Result
@@ -128,6 +121,7 @@ pub fn switch_to_target(
     })
 }
 
+/// Create a new branch at current commit and switch to it.
 pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<SwitchResult, ReviusError> {
     // Validate branch name
     crate::utils::validation::validate_branch_name(branch_name)?;
@@ -139,11 +133,11 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
     // Get current HEAD state
     let (previous_head, _) = get_current_head_state(&repo.conn)?;
     
-    // Create branch at current commit and switch HEAD to it
+    // Transaction
     let tx = repo.conn.unchecked_transaction()
         .map_err(|e| ReviusError::Db(format!("Failed to begin transaction: {}", e)))?;
     
-    // Create the branch
+    // Create the branch (this function checks if it already exists)
     crate::core::branch::create_branch_in_tx(&tx, branch_name, &current_commit)?;
     
     // Switch HEAD to new branch
@@ -155,14 +149,14 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
         &tx,
         "HEAD",
         Some(&current_commit),
-        Some(&current_commit),
+        Some(&current_commit), // Moving from commit X to commit X (just changing ref)
         &action,
     )?;
     
     tx.commit()
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
     
-    // No workspace changes needed
+    // No workspace changes needed since we aren't changing commits
     Ok(SwitchResult {
         previous_head,
         new_head: HeadState::Branch(branch_name.to_string(), current_commit),
@@ -171,9 +165,10 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
     })
 }
 
-/// Helper to get the full HeadState (including hash) which is needed for SwitchResult
+/// Helper to get the full HeadState (including hash)
 pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u8; 32]>), ReviusError> {
     // We use core::refs to parse the meta value, but we need to enrich it with the hash
+    // Note: core_refs::HeadState is a different enum (simple) than objects::HeadState (rich)
     let simple_state = core_refs::get_head_state(conn)?;
     
     match simple_state {
@@ -202,7 +197,7 @@ pub fn check_uncommitted_changes(repo: &Repository) -> Result<bool, ReviusError>
     // Get all files in staging
     let staged_files = db::staging::get_all_staged(&repo.conn)?;
     
-    // Create maps for easier comparison
+    // Create maps for comparison
     let mut staged_map: HashMap<String, ([u8; 32], u32)> = HashMap::new();
     for staged_file in staged_files {
         staged_map.insert(staged_file.path, (staged_file.file_hash, staged_file.mode));
@@ -217,6 +212,7 @@ pub fn check_uncommitted_changes(repo: &Repository) -> Result<bool, ReviusError>
     // Check for modifications or additions in workdir
     for rel_path in &workdir_map {
         let abs_path = fs::paths::to_absolute(rel_path, &repo.root);
+        // We must hash the file to know if it actually changed
         let (_file_data, file_hash) = crate::core::content::read_and_hash_file(&abs_path)?;
         
         if let Some((staged_hash, _staged_mode)) = staged_map.get(rel_path) {
@@ -225,7 +221,8 @@ pub fn check_uncommitted_changes(repo: &Repository) -> Result<bool, ReviusError>
                 return Ok(true); // Modified
             }
         } else {
-            // File not in staging - new file
+            // File not in staging - new (untracked) file
+            // Strict safety: preventing switch if any untracked file exists
             return Ok(true);
         }
     }
@@ -265,19 +262,18 @@ pub fn build_switch_plan(
     let mut to_modify = Vec::new();
     let mut to_delete = Vec::new();
     
-    // Files in target
+    // Identify additions and modifications
     for (path, hash, mode, _size) in target_files_vec {
         if let Some((current_hash, _current_mode)) = current_files.get(&path) {
             if current_hash != &hash {
                 to_modify.push((path, hash, mode));
             }
-            // If hashes match, no change needed
         } else {
             to_add.push((path, hash, mode));
         }
     }
     
-    // Files in current but not in target
+    // Identify deletions
     for (path, _) in current_files {
         if !target_files.contains_key(&path) {
             to_delete.push(path);
@@ -295,7 +291,7 @@ pub fn apply_workspace_changes(
     repo: &Repository,
     plan: &SwitchPlan,
 ) -> Result<(usize, usize), ReviusError> {
-    // Delete files first
+    // 1. Delete files
     for path in &plan.to_delete {
         let abs_path = fs::paths::to_absolute(path, &repo.root);
         if fs::paths::path_exists(&abs_path) {
@@ -304,7 +300,8 @@ pub fn apply_workspace_changes(
         }
     }
     
-    // Add and modify files
+    // 2. Add and modify files
+    // Both operations just involve overwriting the file with specific content
     for (path, file_hash, mode) in plan.to_add.iter().chain(plan.to_modify.iter()) {
         let abs_path = fs::paths::to_absolute(path, &repo.root);
         crate::core::checkout::checkout_file(&repo.conn, file_hash, &abs_path, *mode)?;
@@ -322,7 +319,8 @@ pub fn update_staging_from_tree(
 ) -> Result<(), ReviusError> {
     let files = get_all_files_in_tree(tx, &tree_hash)?;
     
-    // Use current timestamp for all staged files since they'll be written to disk after this transaction
+    // When resetting staging to a tree, we set the modified time to the current timestamp.
+    // This assumes the subsequent workspace checkout will write files near this time.
     let current_time = crate::utils::time::unix_timestamp()
         .unwrap_or(0);
     

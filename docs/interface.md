@@ -39,6 +39,7 @@ fn main() {
         Commands::Branch(args) => commands::branch::run(args),
         Commands::Switch(args) => commands::switch::run(args),
         Commands::Merge(args) => commands::merge::run(args),
+        Commands::Reset(args) => commands::reset::run(args),
     };
 
     if let Err(e) = result {
@@ -227,6 +228,30 @@ fn run(args: MergeArgs) -> Result<(), ReviusError> {
 }
 ```
 
+### `commands/reset.rs`
+
+```rust
+fn run(args: ResetArgs) -> Result<(), ReviusError> {
+    let current_dir = fs::paths::get_current_dir()?;
+    let repo = open::open_repository(&current_dir)?;
+    let target = args.target.as_deref().unwrap_or("HEAD");
+    let mode_count = (args.soft as u8) + (args.mixed as u8) + (args.hard as u8);
+    if mode_count > 1 {
+        return Err(ReviusError::Usage("Cannot specify multiple reset modes (--soft, --mixed, --hard) at once".to_string()));
+    }
+    let final_hash = if args.hard {
+        core::reset::reset_hard(&repo, target)?
+    } else if args.soft {
+        core::reset::reset_soft(&repo, target)?
+    } else {
+        core::reset::reset_mixed(&repo, target)?
+    };
+    let mode_str = if args.hard { "hard" } else if args.soft { "soft" } else { "mixed" };
+    ui::print_reset_success(mode_str, &final_hash);
+    Ok(())
+}
+```
+
 ## core
 
 ### `core/config.rs`
@@ -402,6 +427,19 @@ fn update_staging_from_tree(tx: &rusqlite::Transaction, tree_hash: [u8; 32]) -> 
 /// Format target type and name for user-facing messages.
 /// Returns "branch 'name'" or "commit 'hash'".
 fn format_target_name(target_type: &TargetType, target: &str) -> String
+```
+
+### `core/reset.rs`
+
+```rust
+/// Resets HEAD to the target commit. Does not touch staging or working directory.
+pub fn reset_soft(repo: &Repository, target: &str) -> Result<[u8; 32], ReviusError>
+/// Resets HEAD to the target commit and updates staging to match. Working directory is left unchanged.
+pub fn reset_mixed(repo: &Repository, target: &str) -> Result<[u8; 32], ReviusError>
+/// Resets HEAD, staging, and working directory to the target commit. Destructive operation.
+pub fn reset_hard(repo: &Repository, target: &str) -> Result<[u8; 32], ReviusError>
+/// Moves the HEAD or branch pointer. Adds a reflog entry.
+fn move_head(tx: &Transaction, target_hash: [u8; 32], mode_str: &str) -> Result<(), ReviusError>
 ```
 
 ### `core/merge.rs`
@@ -816,6 +854,9 @@ enum Commands {
 
     #[command(about = "Join two development histories together")]
     Merge(MergeArgs),
+
+    #[command(about = "Reset current HEAD to the specified state")]
+    Reset(ResetArgs),
 }
 
 #[derive(Parser)]
@@ -891,6 +932,21 @@ struct MergeArgs {
     #[arg(help = "Branch name or commit hash to merge")]
     target: String,
 }
+
+#[derive(Parser)]
+pub struct ResetArgs {
+    #[arg(help = "Commit hash or reference to reset to (defaults to HEAD)")]
+    pub target: Option<String>,
+
+    #[arg(short, long, help = "Reset HEAD but keep staging and working directory unchanged")]
+    pub soft: bool,
+
+    #[arg(short, long, help = "Reset HEAD and staging, but keep working directory unchanged (default)")]
+    pub mixed: bool,
+
+    #[arg(short = 'H', long, help = "Reset HEAD, staging, and working directory (destructive)")]
+    pub hard: bool,
+}
 ```
 
 ### `cli/ui.rs`
@@ -937,4 +993,6 @@ fn print_merge_fast_forward(from: &[u8; 32], to: &[u8; 32])
 fn print_merge_already_up_to_date()
 fn print_merge_success(commit_hash: &[u8; 32], files_changed: usize)
 fn print_merge_conflicts(conflicts: &[MergeConflict])
+
+pub fn print_reset_success(mode: &str, commit_hash: &[u8; 32])
 ```

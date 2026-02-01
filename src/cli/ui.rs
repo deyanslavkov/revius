@@ -418,3 +418,11 @@ pub fn print_merge_conflicts(conflicts: &[MergeConflict]) {
     eprintln!();
     eprintln!("Automatic merge failed. Please resolve conflicts manually.");
 }
+
+pub fn print_reset_success(mode: &str, commit_hash: &[u8; 32]) {
+    println!(
+        "HEAD is now at {} ({} reset)",
+        hash::hash_to_short_hex(commit_hash).yellow(),
+        mode
+    );
+}

@@ -15,6 +15,7 @@ pub fn main() {
         Commands::Branch(args) => commands::branch::run(args),
         Commands::Switch(args) => commands::switch::run(args),
         Commands::Merge(args) => commands::merge::run(args),
+        Commands::Reset(args) => commands::reset::run(args),
     };
 
     if let Err(e) = result {
