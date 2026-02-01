@@ -26,19 +26,25 @@ pub fn print_modified_file(path: &str) {
     println!("{} {}", "M".yellow().bold(), path);
 }
 
+pub fn print_deleted_file(path: &str) {
+    println!("{} {}", "-".red().bold(), path);
+}
+
 pub fn print_warn(msg: &str) {
     eprintln!("{} {}", "Warning:".yellow().bold(), msg);
 }
 
-pub fn print_add_summary(added: u64, skipped: u64, blobs: u64) {
+pub fn print_add_summary(added: u64, changed: u64, deleted: u64, unchanged: u64, blobs: u64) {
     println!(
-        "\n{} {} added, {} unchanged, {} blob insertions",
+        "\n{} {} added, {} changed, {} deleted, {} unchanged, {} blob insertions",
         "✓".green().bold(),
         added,
-        skipped,
+        changed,
+        deleted,
+        unchanged,
         blobs
     );
-}
+} 
 
 pub fn print_commit_success(hash: &[u8; 32], message: &str, files_changed: usize) {
     let short_hash = hex::encode(&hash[..8]);
