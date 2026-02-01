@@ -105,86 +105,38 @@ pub fn find_commits_by_prefix(
     conn: &Connection,
     prefix: &str,
 ) -> Result<Vec<[u8; 32]>, ReviusError> {
-    use crate::utils::hash;
-    
     // Validate prefix
     if !hash::is_valid_hash_prefix(prefix) {
         return Err(ReviusError::InvalidHashPrefix(prefix.to_string()));
     }
-    
-    // Convert prefix to bytes for comparison
-    let (prefix_bytes, hex_len) = hash::hex_prefix_to_bytes(prefix)
-        .map_err(|e| ReviusError::Db(format!("Failed to parse hash prefix: {}", e)))?;
-    
-    // Query all commits
+
+    // We use SQL LIKE with the hex function to filter efficiently in the DB
+    // Since input is hex, we look for hex(hash) starting with upper(prefix)
+    let pattern = format!("{}%", prefix.to_uppercase());
+
     let mut stmt = conn
-        .prepare("SELECT hash FROM Commits")
-        .map_err(|e| ReviusError::Db(format!("Failed to prepare query: {}", e)))?;
+        .prepare("SELECT hash FROM Commits WHERE hex(hash) LIKE ?1")
+        .map_err(|e| ReviusError::Db(format!("Failed to prepare prefix query: {}", e)))?;
     
-    let mut matches = Vec::new();
     let rows = stmt
-        .query_map([], |row| {
+        .query_map([pattern], |row| {
             let hash_vec: Vec<u8> = row.get(0)?;
             Ok(hash_vec)
         })
         .map_err(|e| ReviusError::Db(format!("Failed to query commits: {}", e)))?;
     
+    let mut matches = Vec::new();
     for row in rows {
         let hash_vec = row.map_err(|e| {
             ReviusError::Db(format!("Failed to read commit hash: {}", e))
         })?;
         
-        // Check if this hash matches the prefix
-        if hash_matches_prefix(&hash_vec, &prefix_bytes, hex_len) {
-            let hash = hash::vec_to_hash(&hash_vec)
-                .map_err(|e| ReviusError::Db(format!("Invalid hash in database: {}", e)))?;
-            matches.push(hash);
-        }
+        let hash = hash::vec_to_hash(&hash_vec)
+            .map_err(|e| ReviusError::Db(format!("Invalid hash in database: {}", e)))?;
+        matches.push(hash);
     }
     
     Ok(matches)
-}
-
-/// Check if a hash matches a given prefix. hex_len is the number of hex characters in the original prefix (not bytes)
-fn hash_matches_prefix(hash: &[u8], prefix_bytes: &[u8], hex_len: usize) -> bool {
-    let full_bytes = hex_len / 2;
-    let has_nibble = hex_len % 2 == 1;
-    
-    // Compare full bytes
-    if hash.len() < prefix_bytes.len() {
-        return false;
-    }
-    
-    for i in 0..full_bytes {
-        if hash[i] != prefix_bytes[i] {
-            return false;
-        }
-    }
-    
-    // If odd number of hex chars, compare the high nibble of the next byte
-    if has_nibble {
-        let hash_nibble = hash[full_bytes] >> 4;
-        let prefix_nibble = prefix_bytes[full_bytes] >> 4;
-        if hash_nibble != prefix_nibble {
-            return false;
-        }
-    }
-    
-    true
-}
-
-/// Resolve a hash prefix to exactly one commit hash. Returns error if prefix is ambiguous or matches no commits
-pub fn resolve_commit_prefix(
-    conn: &Connection,
-    prefix: &str,
-) -> Result<[u8; 32], ReviusError> {
-    let matches = find_commits_by_prefix(conn, prefix)?;
-    
-    match matches.len() {
-        0 => Err(ReviusError::CommitNotFound(prefix.to_string())),
-        1 => Ok(matches[0]),
-        _ => Err(ReviusError::AmbiguousHashPrefix(prefix.to_string())),
-    }
 }
 
 /// Get all parent hashes for a commit (primary and merge parent if exists)
@@ -202,8 +154,6 @@ pub fn get_commit_parents(
             ))
         })?;
 
-    let mut parents = Vec::new();
-
     let result = stmt.query_row([commit_hash.as_slice()], |row| {
         let parent_hash: Option<Vec<u8>> = row.get(0)?;
         let merge_parent_hash: Option<Vec<u8>> = row.get(1)?;
@@ -212,6 +162,7 @@ pub fn get_commit_parents(
 
     match result {
         Ok((parent_hash, merge_parent_hash)) => {
+            let mut parents = Vec::new();
             if let Some(ph) = parent_hash {
                 parents.push(
                     hash::vec_to_hash(&ph)
