@@ -1,6 +1,7 @@
 use crate::core::models::repository::Repository;
-use crate::core::models::objects::{SwitchResult, HeadState, TargetType, SwitchPlan};
-use crate::core::resolve;
+use crate::core::models::objects::{SwitchResult, HeadState, SwitchPlan};
+use crate::core::resolve::{resolve_target, ResolvedTarget};
+use crate::core::refs::{self as core_refs};
 use crate::db;
 use crate::error::ReviusError;
 use crate::fs;
@@ -20,15 +21,33 @@ pub fn switch_to_target(
     }
     
     // Phase 1: Preparation and Validation
-    let (previous_head, current_commit) = get_current_head_state(&repo.conn)?;
-    let (target_type, target_commit) = resolve_target(&repo.conn, target)?;
+    let (previous_head, current_commit_opt) = get_current_head_state(&repo.conn)?;
+    let resolved_target = resolve_target(&repo.conn, target)?;
+    let target_commit = resolved_target.hash();
     
     // Check if already on target
-    if let Some(current) = current_commit {
-        if current == target_commit {
-            return Err(ReviusError::Usage(
-                format!("Already on {}", format_target_name(&target_type, target))
-            ));
+    // If we are on a branch, and the target is that branch name
+    if let HeadState::Branch(ref current_name, _) = previous_head {
+        if let ResolvedTarget::Branch(ref target_name, _) = resolved_target {
+            if current_name == target_name {
+                 return Err(ReviusError::Usage(
+                    format!("Already on {}", format_target_name(&resolved_target))
+                ));
+            }
+        }
+    }
+    // If we are detached, and switching to the same commit hash
+    if let HeadState::Detached(current_hash) = previous_head {
+        if current_hash == target_commit {
+             // Note: Git allows "checking out" the same commit again to refresh files, 
+             // but for now we block it to avoid confusion unless we want to support --force for that.
+             // If target was a branch name, we proceed (attaching HEAD). 
+             // If target was a hash/tag, we are already there.
+             if let ResolvedTarget::Commit(_) = resolved_target {
+                 return Err(ReviusError::Usage(
+                    format!("Already on {}", format_target_name(&resolved_target))
+                ));
+             }
         }
     }
     
@@ -41,7 +60,7 @@ pub fn switch_to_target(
     }
     
     // Phase 2: Plan Workspace Changes
-    let current_tree = if let Some(commit) = current_commit {
+    let current_tree = if let Some(commit) = current_commit_opt {
         Some(db::commits::get_commit_tree(&repo.conn, &commit)?)
     } else {
         None
@@ -55,21 +74,28 @@ pub fn switch_to_target(
         .map_err(|e| ReviusError::Db(format!("Failed to begin transaction: {}", e)))?;
     
     // Update HEAD
-    let new_head_value = match &target_type {
-        TargetType::Branch(name) => format!("ref: refs/heads/{}", name),
-        TargetType::Commit => utils::hash::hash_to_hex(&target_commit),
+    match &resolved_target {
+        ResolvedTarget::Branch(name, _) => {
+            core_refs::update_head_to_branch(&tx, name)?;
+        }
+        ResolvedTarget::Commit(hash) => {
+            core_refs::update_head(&tx, hash)?;
+        }
     };
-    db::meta::set_meta(&tx, "HEAD", &new_head_value)?;
     
     // Insert reflog entry
-    let action = match &target_type {
-        TargetType::Branch(name) => format!(r#"["switch", "{}"]"#, name),
-        TargetType::Commit => format!(r#"["switch", "{}"]"#, utils::hash::hash_to_hex(&target_commit)),
+    // We use the raw target string from the resolved target for the log
+    let target_display = match &resolved_target {
+        ResolvedTarget::Branch(name, _) => name.clone(),
+        ResolvedTarget::Commit(hash) => utils::hash::hash_to_hex(hash),
     };
+
+    let action = format!(r#"["switch", "{}"]"#, target_display);
+    
     db::reflog::insert_reflog(
         &tx,
         "HEAD",
-        current_commit.as_ref(),
+        current_commit_opt.as_ref(),
         Some(&target_commit),
         &action,
     )?;
@@ -88,9 +114,9 @@ pub fn switch_to_target(
     let (files_changed, files_deleted) = apply_workspace_changes(repo, &plan)?;
     
     // Phase 5: Return Result
-    let new_head = match target_type {
-        TargetType::Branch(name) => HeadState::Branch(name, target_commit),
-        TargetType::Commit => HeadState::Detached(target_commit),
+    let new_head = match resolved_target {
+        ResolvedTarget::Branch(name, hash) => HeadState::Branch(name, hash),
+        ResolvedTarget::Commit(hash) => HeadState::Detached(hash),
     };
     
     Ok(SwitchResult {
@@ -120,8 +146,7 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
     crate::core::branch::create_branch_in_tx(&tx, branch_name, &current_commit)?;
     
     // Switch HEAD to new branch
-    let new_head_value = format!("ref: refs/heads/{}", branch_name);
-    db::meta::set_meta(&tx, "HEAD", &new_head_value)?;
+    core_refs::update_head_to_branch(&tx, branch_name)?;
     
     // Log to reflog
     let action = format!(r#"["switch", "-c", "{}"]"#, branch_name);
@@ -145,65 +170,27 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
     })
 }
 
+/// Helper to get the full HeadState (including hash) which is needed for SwitchResult
 pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u8; 32]>), ReviusError> {
-    let head_value = db::meta::get_meta(conn, "HEAD")?
-        .ok_or_else(|| ReviusError::Db("HEAD not found in Meta table".to_string()))?;
+    // We use core::refs to parse the meta value, but we need to enrich it with the hash
+    let simple_state = core_refs::get_head_state(conn)?;
     
-    if head_value.starts_with("ref: refs/heads/") {
-        let branch_name = head_value.strip_prefix("ref: refs/heads/")
-            .ok_or_else(|| ReviusError::Db("Failed to parse HEAD branch reference".to_string()))?
-            .to_string();
-        let commit_hash = db::refs::get_ref(conn, &format!("refs/heads/{}", branch_name))?;
-        
-        if let Some(hash) = commit_hash {
-            Ok((HeadState::Branch(branch_name, hash), Some(hash)))
-        } else {
-            // Branch exists but no commits yet
-            Ok((HeadState::Branch(branch_name, [0; 32]), None))
-        }
-    } else {
-        // Detached HEAD
-        let hash_bytes = hex::decode(&head_value)
-            .map_err(|e| ReviusError::Db(format!("Invalid HEAD value '{}': {}", head_value, e)))?;
-        let hash = utils::hash::vec_to_hash(&hash_bytes)
-            .map_err(|e| ReviusError::Db(format!("Invalid HEAD hash: {}", e)))?;
-        Ok((HeadState::Detached(hash), Some(hash)))
-    }
-}
-
-pub fn resolve_target(conn: &Connection, target: &str) -> Result<(TargetType, [u8; 32]), ReviusError> {
-    // Try as branch name first
-    let branch_ref = format!("refs/heads/{}", target);
-    if let Some(commit_hash) = db::refs::get_ref(conn, &branch_ref)? {
-        return Ok((TargetType::Branch(target.to_string()), commit_hash));
-    }
-    
-    // Try as full commit hash (64 hex chars)
-    if target.len() == 64 {
-        if let Ok(hash_bytes) = hex::decode(target) {
-            if hash_bytes.len() == 32 {
-                if let Ok(hash) = utils::hash::vec_to_hash(&hash_bytes) {
-                    // Verify commit exists
-                    if db::commits::commit_exists(conn, &hash)? {
-                        return Ok((TargetType::Commit, hash));
-                    } else {
-                        return Err(ReviusError::CommitNotFound(target.to_string()));
-                    }
-                }
+    match simple_state {
+        core_refs::HeadState::Branch(name) => {
+            let ref_path = format!("refs/heads/{}", name);
+            let hash = db::refs::get_ref(conn, &ref_path)?;
+            
+            if let Some(h) = hash {
+                Ok((HeadState::Branch(name, h), Some(h)))
+            } else {
+                // Branch exists but no commits yet (initial state)
+                Ok((HeadState::Branch(name, [0; 32]), None))
             }
         }
-    }
-    
-    // Try as hash prefix (1-63 hex chars)
-    if utils::hash::is_valid_hash_prefix(target) && target.len() < 64 {
-        match resolve::resolve_commit_hash(conn, target) {
-            Ok(hash) => return Ok((TargetType::Commit, hash)),
-            Err(e) => return Err(e), // Propagate AmbiguousHashPrefix, CommitNotFound, etc.
+        core_refs::HeadState::Detached(hash) => {
+            Ok((HeadState::Detached(hash), Some(hash)))
         }
     }
-    
-    // Neither branch nor valid commit hash/prefix
-    Err(ReviusError::TargetNotFound(target.to_string()))
 }
 
 pub fn check_uncommitted_changes(repo: &Repository) -> Result<bool, ReviusError> {
@@ -345,9 +332,9 @@ pub fn update_staging_from_tree(
     Ok(())
 }
 
-pub fn format_target_name(target_type: &TargetType, target: &str) -> String {
-    match target_type {
-        TargetType::Branch(_) => format!("branch '{}'", target),
-        TargetType::Commit => format!("commit '{}'", target),
+pub fn format_target_name(target: &ResolvedTarget) -> String {
+    match target {
+        ResolvedTarget::Branch(name, _) => format!("branch '{}'", name),
+        ResolvedTarget::Commit(hash) => format!("commit '{}'", utils::hash::hash_to_short_hex(hash)),
     }
 }

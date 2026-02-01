@@ -3,14 +3,15 @@ use crate::cli::ui;
 use crate::core;
 use crate::error::ReviusError;
 use crate::fs;
-use crate::core::switch::resolve_target;
+use crate::core::resolve::resolve_target;
 
 pub fn run(args: MergeArgs) -> Result<(), ReviusError> {
     let current_dir = fs::paths::get_current_dir()?;
     let repo = core::open::open_repository(&current_dir)?;
 
     // Resolve target to commit hash
-    let (_, target_commit) = resolve_target(&repo.conn, &args.target)?;
+    let resolved_target = resolve_target(&repo.conn, &args.target)?;
+    let target_commit = resolved_target.hash();
     
     // Perform the merge
     match core::merge::perform_merge(&repo, target_commit)? {
