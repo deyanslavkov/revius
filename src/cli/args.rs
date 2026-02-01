@@ -34,6 +34,9 @@ pub enum Commands {
 
     #[command(about = "Join two development histories together")]
     Merge(MergeArgs),
+
+    #[command(about = "Reset current HEAD to the specified state")]
+    Reset(ResetArgs),
 }
 
 #[derive(Parser)]
@@ -108,4 +111,19 @@ pub struct SwitchArgs {
 pub struct MergeArgs {
     #[arg(help = "Branch name or commit hash to merge")]
     pub target: String,
+}
+
+#[derive(Parser)]
+pub struct ResetArgs {
+    #[arg(help = "Commit hash or reference to reset to (defaults to HEAD)")]
+    pub target: Option<String>,
+
+    #[arg(short, long, help = "Reset HEAD but keep staging and working directory unchanged")]
+    pub soft: bool,
+
+    #[arg(short, long, help = "Reset HEAD and staging, but keep working directory unchanged (default)")]
+    pub mixed: bool,
+
+    #[arg(short = 'H', long, help = "Reset HEAD, staging, and working directory (destructive)")]
+    pub hard: bool,
 }
