@@ -41,6 +41,7 @@ fn main() {
         Commands::Merge(args) => commands::merge::run(args),
         Commands::Reset(args) => commands::reset::run(args),
         Commands::Restore(args) => commands::restore::run(args),
+        Commands::Gc(args) => commands::gc::run(args),
     };
 
     if let Err(e) = result {
@@ -275,6 +276,19 @@ fn run(args: RestoreArgs) -> Result<(), ReviusError> {
 }
 ```
 
+### `commands/gc.rs`
+
+```rust
+pub fn run(args: GcArgs) -> Result<(), ReviusError> {
+    let current_dir = fs::paths::get_current_dir()?;
+    let repo = open::open_repository(&current_dir)?;
+    ui::print_gc_start(args.dry_run);
+    let stats = gc::run_garbage_collection(&repo, args.dry_run)?;
+    ui::print_gc_stats(&stats);
+    Ok(())
+}
+```
+
 ## core
 
 ### `core/config.rs`
@@ -452,6 +466,21 @@ fn update_staging_from_tree(tx: &rusqlite::Transaction, tree_hash: [u8; 32]) -> 
 fn format_target_name(target_type: &TargetType, target: &str) -> String
 ```
 
+### `core/merge.rs`
+
+```rust
+/// Perform a merge of target_commit into current HEAD
+fn perform_merge(repo: &Repository, target_commit: [u8; 32]) -> Result<MergeResult, ReviusError>
+/// Perform a fast-forward merge by updating HEAD to target
+fn perform_fast_forward(repo: &Repository, from: [u8; 32], to: [u8; 32]) -> Result<MergeResult, ReviusError>
+/// Perform a three-way merge creating a merge commit
+fn perform_three_way_merge(repo: &Repository, our_commit: [u8; 32], their_commit: [u8; 32], base_commit: [u8; 32]) -> Result<MergeResult, ReviusError>
+/// Three-way merge algorithm. Returns Ok(merged_files) or Err(conflicts)
+fn three_way_merge(base_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>, our_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>, their_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>) -> Result<Vec<(String, [u8; 32], u32)>, Vec<MergeConflict>>
+/// Find the lowest common ancestor (merge base) of two commits using bidirectional BFS
+fn find_merge_base(conn: &Connection, commit1: [u8; 32], commit2: [u8; 32]) -> Result<Option<[u8; 32]>, ReviusError>
+```
+
 ### `core/reset.rs`
 
 ```rust
@@ -479,23 +508,18 @@ fn matches_any_pattern(path: &str, patterns: &[String]) -> bool
 fn get_source_files(conn: &Transaction, source: &str) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError>
 ```
 
-### `core/merge.rs`
+### `core/gc.rs`
 
 ```rust
-/// Perform a merge of target_commit into current HEAD
-fn perform_merge(repo: &Repository, target_commit: [u8; 32]) -> Result<MergeResult, ReviusError>
-/// Perform a fast-forward merge by updating HEAD to target
-fn perform_fast_forward(repo: &Repository, from: [u8; 32], to: [u8; 32]) -> Result<MergeResult, ReviusError>
-/// Perform a three-way merge creating a merge commit
-fn perform_three_way_merge(repo: &Repository, our_commit: [u8; 32], their_commit: [u8; 32], base_commit: [u8; 32]) -> Result<MergeResult, ReviusError>
-/// Three-way merge algorithm. Returns Ok(merged_files) or Err(conflicts)
-fn three_way_merge(
-    base_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
-    our_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
-    their_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
-    ) -> Result<Vec<(String, [u8; 32], u32)>, Vec<MergeConflict>>
-/// Find the lowest common ancestor (merge base) of two commits using bidirectional BFS
-fn find_merge_base(conn: &Connection, commit1: [u8; 32], commit2: [u8; 32]) -> Result<Option<[u8; 32]>, ReviusError>
+#[derive(Default, Debug)]
+pub struct GcStats {
+    pub commits_deleted: usize,
+    pub trees_deleted: usize,
+    pub files_deleted: usize,
+    pub blobs_deleted: usize,
+}
+pub fn run_garbage_collection(repo: &Repository, dry_run: bool) -> Result<GcStats, ReviusError>
+fn mark_reachable_objects(conn: &Connection) -> Result<(HashSet<[u8; 32]>, HashSet<[u8; 32]>, HashSet<[u8; 32]>, HashSet<[u8; 32]>), ReviusError>
 ```
 
 ## core/models
@@ -737,6 +761,30 @@ fn ref_exists(conn: &Connection, path: &str) -> Result<bool, ReviusError>
 fn insert_reflog(tx: &Transaction, ref_path: &str, old_hash: Option<&[u8; 32]>, new_hash: Option<&[u8; 32]>, action: &str) -> Result<(), ReviusError>
 ```
 
+### `db/gc.rs`
+
+```rust
+/// Creates a temporary table to hold hashes that must be preserved.
+/// We use a (hash, type) composite PK to allow different object types to share hashes 
+/// (though unlikely in practice, it's correct) and to reuse one table.
+/// Types: 1=Commit, 2=Tree, 3=File, 4=Blob
+pub fn create_keep_list_table(tx: &Transaction) -> Result<(), ReviusError>
+/// Batch inserts hashes into the keep list.
+pub fn populate_keep_list(tx: &Transaction, hashes: &HashSet<[u8; 32]>, object_type: u8) -> Result<(), ReviusError>
+pub fn delete_unused_commits(tx: &Transaction) -> Result<usize, ReviusError>
+pub fn delete_unused_trees(tx: &Transaction) -> Result<usize, ReviusError>
+pub fn delete_unused_files(tx: &Transaction) -> Result<usize, ReviusError>
+pub fn delete_unused_blobs(tx: &Transaction) -> Result<usize, ReviusError>
+/// Runs VACUUM to reclaim physical disk space.
+/// Note: VACUUM cannot run inside a transaction.
+pub fn vacuum_db(conn: &Connection) -> Result<(), ReviusError>
+// Queries for Dry Run stats
+pub fn count_unused_commits(tx: &Transaction) -> Result<usize, ReviusError>
+pub fn count_unused_trees(tx: &Transaction) -> Result<usize, ReviusError>
+pub fn count_unused_files(tx: &Transaction) -> Result<usize, ReviusError>
+pub fn count_unused_blobs(tx: &Transaction) -> Result<usize, ReviusError>
+```
+
 ## fs
 
 ### `fs/config.rs`
@@ -897,6 +945,9 @@ enum Commands {
 
     #[command(about = "Restore working tree files")]
     Restore(RestoreArgs),
+
+    #[command(about = "Cleanup unnecessary files and optimize the local repository")]
+    Gc(GcArgs),
 }
 
 #[derive(Parser)]
@@ -1002,6 +1053,12 @@ pub struct RestoreArgs {
     #[arg(long, help = "Commit to restore from. Defaults to HEAD. Ignored if only --worktree is used.")]
     pub source: Option<String>,
 }
+
+#[derive(Parser)]
+pub struct GcArgs {
+    #[arg(long, help = "Do not delete anything, just show what would be deleted")]
+    pub dry_run: bool,
+}
 ```
 
 ### `cli/ui.rs`
@@ -1052,4 +1109,7 @@ fn print_merge_conflicts(conflicts: &[MergeConflict])
 pub fn print_reset_success(mode: &str, commit_hash: &[u8; 32])
 
 pub fn print_restore_success(mode: &str, count: usize)
+
+pub fn print_gc_start(dry_run: bool)
+pub fn print_gc_stats(stats: &GcStats)
 ```
