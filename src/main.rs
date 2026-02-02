@@ -17,6 +17,7 @@ pub fn main() {
         Commands::Merge(args) => commands::merge::run(args),
         Commands::Reset(args) => commands::reset::run(args),
         Commands::Restore(args) => commands::restore::run(args),
+        Commands::Gc(args) => commands::gc::run(args),
     };
 
     if let Err(e) = result {
