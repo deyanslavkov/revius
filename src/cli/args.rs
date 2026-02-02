@@ -37,6 +37,9 @@ pub enum Commands {
 
     #[command(about = "Reset current HEAD to the specified state")]
     Reset(ResetArgs),
+
+    #[command(about = "Restore working tree files")]
+    Restore(RestoreArgs),
 }
 
 #[derive(Parser)]
@@ -126,4 +129,19 @@ pub struct ResetArgs {
 
     #[arg(short = 'H', long, help = "Reset HEAD, staging, and working directory (destructive)")]
     pub hard: bool,
+}
+
+#[derive(Parser)]
+pub struct RestoreArgs {
+    #[arg(required = true, help = "Files or directories to restore")]
+    pub paths: Vec<PathBuf>,
+
+    #[arg(short, long, help = "Restore the repository's staging area from source")]
+    pub staged: bool,
+
+    #[arg(short, long, help = "Restore the working tree from staging area (or source if combined with --staged)")]
+    pub worktree: bool,
+
+    #[arg(long, help = "Commit to restore from. Defaults to HEAD. Ignored if only --worktree is used.")]
+    pub source: Option<String>,
 }

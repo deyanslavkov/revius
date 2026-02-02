@@ -426,3 +426,15 @@ pub fn print_reset_success(mode: &str, commit_hash: &[u8; 32]) {
         mode
     );
 }
+
+pub fn print_restore_success(mode: &str, count: usize) {
+    if count == 0 {
+        println!("No files were changed.");
+    } else {
+        println!(
+            "Restored {} file(s) ({})",
+            count.to_string().yellow(),
+            mode
+        );
+    }
+}
