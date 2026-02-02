@@ -5,6 +5,7 @@ use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, HeadState
 use crate::utils::hash::hash_to_short_hex;
 use crate::utils::{hash, time};
 use crate::core::merge::{ConflictType, MergeConflict};
+use crate::core::gc::GcStats;
 
 pub fn print_init_success(path: &Path) {
     println!(
@@ -436,5 +437,26 @@ pub fn print_restore_success(mode: &str, count: usize) {
             count.to_string().yellow(),
             mode
         );
+    }
+}
+
+pub fn print_gc_start(dry_run: bool) {
+    if dry_run {
+        println!("{}", "Running garbage collection (dry run)...".blue());
+    } else {
+        println!("{}", "Running garbage collection...".blue());
+    }
+}
+
+pub fn print_gc_stats(stats: &GcStats) {
+    println!("\nGarbage collection completed.");
+    println!("Objects prune statistics:");
+    println!("  - Commits deleted: {}", stats.commits_deleted.to_string().red());
+    println!("  - Trees deleted:   {}", stats.trees_deleted.to_string().red());
+    println!("  - Files deleted:   {}", stats.files_deleted.to_string().red());
+    println!("  - Blobs deleted:   {}", stats.blobs_deleted.to_string().red());
+    
+    if stats.commits_deleted == 0 && stats.trees_deleted == 0 && stats.files_deleted == 0 && stats.blobs_deleted == 0 {
+        println!("{}", "The repository is already optimized.".green());
     }
 }

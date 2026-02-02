@@ -40,6 +40,9 @@ pub enum Commands {
 
     #[command(about = "Restore working tree files")]
     Restore(RestoreArgs),
+
+    #[command(about = "Cleanup unnecessary files and optimize the local repository")]
+    Gc(GcArgs),
 }
 
 #[derive(Parser)]
@@ -144,4 +147,10 @@ pub struct RestoreArgs {
 
     #[arg(long, help = "Commit to restore from. Defaults to HEAD. Ignored if only --worktree is used.")]
     pub source: Option<String>,
+}
+
+#[derive(Parser)]
+pub struct GcArgs {
+    #[arg(long, help = "Do not delete anything, just show what would be deleted")]
+    pub dry_run: bool,
 }
