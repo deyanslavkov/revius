@@ -40,6 +40,7 @@ fn main() {
         Commands::Switch(args) => commands::switch::run(args),
         Commands::Merge(args) => commands::merge::run(args),
         Commands::Reset(args) => commands::reset::run(args),
+        Commands::Restore(args) => commands::restore::run(args),
     };
 
     if let Err(e) = result {
@@ -252,6 +253,28 @@ fn run(args: ResetArgs) -> Result<(), ReviusError> {
 }
 ```
 
+### `commands/restore.rs`
+
+```rust
+fn run(args: RestoreArgs) -> Result<(), ReviusError> {
+    let current_dir = fs::paths::get_current_dir()?;
+    let repo = open::open_repository(&current_dir)?;
+    let source = args.source.as_deref().unwrap_or("HEAD");
+    let worktree = args.worktree || (!args.staged && !args.worktree);
+    let staged = args.staged;
+    let count = if staged && worktree {
+        core::restore::restore_mixed(&repo, &args.paths, source)?
+    } else if staged {
+        core::restore::restore_staged(&repo, &args.paths, source)?
+    } else {
+        core::restore::restore_worktree(&repo, &args.paths)?
+    };
+    let mode_str = if staged && worktree { "mixed" } else if staged { "staged" } else { "worktree" };
+    ui::print_restore_success(mode_str, count);
+    Ok(())
+}
+```
+
 ## core
 
 ### `core/config.rs`
@@ -440,6 +463,20 @@ pub fn reset_mixed(repo: &Repository, target: &str) -> Result<[u8; 32], ReviusEr
 pub fn reset_hard(repo: &Repository, target: &str) -> Result<[u8; 32], ReviusError>
 /// Moves the HEAD or branch pointer. Adds a reflog entry.
 fn move_head(tx: &Transaction, target_hash: [u8; 32], mode_str: &str) -> Result<(), ReviusError>
+```
+
+### `core/restore.rs`
+
+```rust
+/// Restore working tree from Staging area. Only modifies files that exist in Staging and match the path patterns. Does not delete files from working tree (matches git restore --worktree behavior regarding untracked files).
+pub fn restore_worktree(repo: &Repository, paths: &[PathBuf]) -> Result<usize, ReviusError>
+/// Restore Staging area from a Source Commit (HEAD by default). Updates Staging to match the Source for the given paths. Adds, Updates, and Removes entries in Staging.
+pub fn restore_staged(repo: &Repository, paths: &[PathBuf], source: &str) -> Result<usize, ReviusError>
+/// Restore both Staging and Worktree from a Source Commit. Adds/Updates/Deletes in both Staging and Disk.
+pub fn restore_mixed(repo: &Repository, paths: &[PathBuf], source: &str) -> Result<usize, ReviusError>
+fn normalize_patterns(repo: &Repository, paths: &[PathBuf]) -> Result<Vec<String>, ReviusError>
+fn matches_any_pattern(path: &str, patterns: &[String]) -> bool
+fn get_source_files(conn: &Transaction, source: &str) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError>
 ```
 
 ### `core/merge.rs`
@@ -857,6 +894,9 @@ enum Commands {
 
     #[command(about = "Reset current HEAD to the specified state")]
     Reset(ResetArgs),
+
+    #[command(about = "Restore working tree files")]
+    Restore(RestoreArgs),
 }
 
 #[derive(Parser)]
@@ -947,6 +987,21 @@ pub struct ResetArgs {
     #[arg(short = 'H', long, help = "Reset HEAD, staging, and working directory (destructive)")]
     pub hard: bool,
 }
+
+#[derive(Parser)]
+pub struct RestoreArgs {
+    #[arg(required = true, help = "Files or directories to restore")]
+    pub paths: Vec<PathBuf>,
+
+    #[arg(short, long, help = "Restore the repository's staging area from source")]
+    pub staged: bool,
+
+    #[arg(short, long, help = "Restore the working tree from staging area (or source if combined with --staged)")]
+    pub worktree: bool,
+
+    #[arg(long, help = "Commit to restore from. Defaults to HEAD. Ignored if only --worktree is used.")]
+    pub source: Option<String>,
+}
 ```
 
 ### `cli/ui.rs`
@@ -995,4 +1050,6 @@ fn print_merge_success(commit_hash: &[u8; 32], files_changed: usize)
 fn print_merge_conflicts(conflicts: &[MergeConflict])
 
 pub fn print_reset_success(mode: &str, commit_hash: &[u8; 32])
+
+pub fn print_restore_success(mode: &str, count: usize)
 ```
