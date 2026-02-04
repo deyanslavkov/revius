@@ -17,13 +17,29 @@ pub fn reconstruct_file(
     let blob_hashes = utils::recipe::parse_recipe(&file_info.recipe)
         .map_err(|e| ReviusError::Db(format!("Failed to parse recipe: {}", e)))?;
     
-    // Reconstruct content by fetching, decompressing, and concatenating blobs
+    // Reconstruct content by fetching, optionally decompressing, and concatenating blobs
     let mut content = Vec::with_capacity(file_info.size as usize);
     
     for blob_hash in blob_hashes {
-        let compressed_data = db::blobs::get_blob(conn, &blob_hash)?;
-        let decompressed_data = utils::compression::decompress(&compressed_data)?;
-        content.extend_from_slice(&decompressed_data);
+        // Fetch data AND compression mode
+        let (data, compression_algo) = db::blobs::get_blob(conn, &blob_hash)?;
+        
+        let chunk_data = if compression_algo == "none" {
+            // No decompression needed
+            data
+        } else if compression_algo.starts_with("zstd") {
+            // Decompress
+            utils::compression::decompress(&data)?
+        } else {
+            // Unknown algorithm (future proofing)
+            return Err(ReviusError::Db(format!(
+                "Unsupported compression algorithm '{}' for blob {}", 
+                compression_algo, 
+                utils::hash::hash_to_short_hex(&blob_hash)
+            )));
+        };
+
+        content.extend_from_slice(&chunk_data);
     }
     
     // Verify size
