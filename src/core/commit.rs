@@ -4,6 +4,7 @@ use crate::db::{authors, commits, refs, staging};
 use crate::error::ReviusError;
 use crate::utils::{hash, time};
 use crate::core;
+use crate::fs;
 use rusqlite::Transaction;
 
 pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usize), ReviusError> {
@@ -23,6 +24,23 @@ pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usiz
 
     let parent_hash = refs::resolve_head(&tx)?;
 
+    // Check for MERGE_HEAD
+    let merge_head_path = repo.root.join(".rvs").join("MERGE_HEAD");
+    let mut merge_parent_hash: Option<[u8; 32]> = None;
+
+    if merge_head_path.exists() {
+        if let Ok(content) = fs::io::read_file(&merge_head_path) {
+             let content_str = String::from_utf8_lossy(&content);
+             if let Ok(hash_bytes) = hex::decode(content_str.trim()) {
+                 if hash_bytes.len() == 32 {
+                     let mut arr = [0u8; 32];
+                     arr.copy_from_slice(&hash_bytes);
+                     merge_parent_hash = Some(arr);
+                 }
+             }
+        }
+    }
+
     let user_name = repo.config.user_name.as_ref()
         .ok_or_else(|| ReviusError::Config("User name not configured".to_string()))?;
     let user_email = repo.config.user_email.as_ref()
@@ -33,12 +51,17 @@ pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usiz
         .map_err(|e| ReviusError::Db(format!("System time error: {}", e)))?;
 
     let commit_hash = create_commit_object(
-        &tx, &tree_hash, parent_hash.as_ref(), None, user_name, user_email, timestamp, message, author_id)?;
+        &tx, &tree_hash, parent_hash.as_ref(), merge_parent_hash.as_ref(), user_name, user_email, timestamp, message, author_id)?;
 
     core::refs::update_head(&tx, &commit_hash)?;
 
     tx.commit()
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction for commit: {}", e)))?;
+
+    // Cleanup MERGE_HEAD if it existed
+    if merge_head_path.exists() {
+        let _ = fs::io::delete_file(&merge_head_path);
+    }
 
     Ok((commit_hash, files_count))
 }
