@@ -26,6 +26,7 @@ pub struct StagedFile {
     pub file_hash: [u8; 32],
     pub mode: u32,
     pub size: u64,
+    pub modified_at: i64,
 }
 
 #[derive(Debug, Clone)]
