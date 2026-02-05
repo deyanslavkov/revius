@@ -85,17 +85,16 @@ pub fn switch_to_target(
         ResolvedTarget::Commit(hash) => utils::hash::hash_to_hex(hash),
     };
 
-    let action = format!(r#"["switch", "{}"]"#, target_display);
+    let from_display = match &previous_head {
+        HeadState::Branch(name, _) => name.clone(),
+        HeadState::Detached(hash) => utils::hash::hash_to_hex(hash),
+    };
+
+    // Reflog update
+    let action = format!("checkout: moving from {} to {}", from_display, target_display);
+    // Checkout only updates HEAD's reflog, not the branch's
+    db::reflog::insert_reflog(&tx, "HEAD", current_commit_opt.as_ref(), Some(&target_commit), &action)?;
     
-    db::reflog::insert_reflog(
-        &tx,
-        "HEAD",
-        current_commit_opt.as_ref(),
-        Some(&target_commit),
-        &action,
-    )?;
-    
-    // Clear and rebuild staging area to match the target commit
     db::staging::clear_staging(&tx)?;
     update_staging_from_tree(&tx, target_tree)?;
     
@@ -143,15 +142,14 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
     // Switch HEAD to new branch
     core_refs::update_head_to_branch(&tx, branch_name)?;
     
-    // Log to reflog
-    let action = format!(r#"["switch", "-c", "{}"]"#, branch_name);
-    db::reflog::insert_reflog(
-        &tx,
-        "HEAD",
-        Some(&current_commit),
-        Some(&current_commit), // Moving from commit X to commit X (just changing ref)
-        &action,
-    )?;
+    // Reflog update
+    let from_display = match &previous_head {
+        HeadState::Branch(name, _) => name.clone(),
+        HeadState::Detached(hash) => utils::hash::hash_to_hex(hash),
+    };
+    let action = format!("checkout: moving from {} to {}", from_display, branch_name);
+    
+    db::reflog::insert_reflog(&tx, "HEAD", Some(&current_commit), Some(&current_commit), &action)?;
     
     tx.commit()
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
@@ -172,8 +170,11 @@ pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u
     let simple_state = core_refs::get_head_state(conn)?;
     
     match simple_state {
-        core_refs::HeadState::Branch(name) => {
-            let ref_path = format!("refs/heads/{}", name);
+        core_refs::HeadState::Branch(ref_path) => {
+            // core::refs returns full path "refs/heads/name". We strip it for the public model if needed,
+            // or we can store the short name.
+            let name = ref_path.strip_prefix("refs/heads/").unwrap_or(&ref_path).to_string();
+
             let hash = db::refs::get_ref(conn, &ref_path)?;
             
             if let Some(h) = hash {

@@ -55,6 +55,15 @@ pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usiz
 
     core::refs::update_head(&tx, &commit_hash)?;
 
+    // Reflog update
+    let action_msg = if merge_parent_hash.is_some() {
+        format!("merge: {}", message)
+    } else {
+        format!("commit: {}", message)
+    };
+    
+    core::reflog::log_head_update(&tx, parent_hash.as_ref(), &commit_hash, &action_msg)?;
+
     tx.commit()
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction for commit: {}", e)))?;
 

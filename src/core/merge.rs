@@ -1,5 +1,5 @@
 use crate::core::models::repository::Repository;
-use crate::core::{commit, refs, switch, tree, checkout, content};
+use crate::core::{commit, refs, switch, tree, checkout, content, reflog};
 use crate::db;
 use crate::error::ReviusError;
 use crate::utils::{hash, time};
@@ -10,8 +10,8 @@ use std::str;
 
 #[derive(Debug)]
 pub enum MergeResult {
-    FastForward { from: [u8; 32], to: [u8; 32] },
     AlreadyUpToDate,
+    FastForward { from: [u8; 32], to: [u8; 32] },
     MergeCommit { commit_hash: [u8; 32], files_changed: usize },
     Conflicts(Vec<MergeConflict>),
 }
@@ -22,12 +22,12 @@ pub struct MergeConflict {
     pub conflict_type: ConflictType,
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug)]
 pub enum ConflictType {
     BothModified,
+    BothAdded,
     DeletedByUsModifiedByThem,
     DeletedByThemModifiedByUs,
-    BothAdded,
 }
 
 /// Perform a merge of target_commit into current HEAD
@@ -35,6 +35,11 @@ pub fn perform_merge(
     repo: &Repository,
     target_commit: [u8; 32],
 ) -> Result<MergeResult, ReviusError> {
+    let has_changes = switch::check_uncommitted_changes(repo)?;
+    if has_changes {
+        return Err(ReviusError::UncommittedChanges);
+    }
+
     // Get current HEAD commit
     let current_commit = db::refs::resolve_head(&repo.conn)?
         .ok_or(ReviusError::NoCommitsYet)?;
@@ -86,6 +91,11 @@ fn perform_fast_forward(
         .map_err(|e| ReviusError::Db(format!("Failed to start transaction: {}", e)))?;
     
     refs::update_head(&tx, &to)?;
+
+    // Reflog update
+    let action = format!("merge: fast-forward to {}", hash::hash_to_short_hex(&to));
+    reflog::log_head_update(&tx, Some(&from), &to, &action)?;
+
     switch::update_staging_from_tree(&tx, target_commit.tree_hash)?;
     
     tx.commit()
@@ -99,7 +109,7 @@ fn perform_fast_forward(
 
 /// Internal struct to track the merge plan
 struct MergePlan {
-    clean: Vec<(String, [u8; 32], u32)>,
+    clean: Vec<(String, [u8; 32], u32)>, // path, hash, mode
     conflicts: Vec<ConflictEntry>,
 }
 
@@ -235,6 +245,10 @@ fn perform_three_way_merge(
 
     // Update HEAD
     refs::update_head(&tx, &commit_hash)?;
+
+    // Reflog update
+    let action = format!("merge: {}", message);
+    reflog::log_head_update(&tx, Some(&our_commit), &commit_hash, &action)?;
 
     // Commit transaction
     tx.commit()
