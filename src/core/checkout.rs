@@ -1,3 +1,4 @@
+use crate::core::models::objects::MODE_EXEC;
 use crate::db;
 use crate::error::ReviusError;
 use crate::fs;
@@ -76,8 +77,8 @@ pub fn checkout_file(
     fs::io::write_binary(target_path, &content)
         .map_err(|e| ReviusError::Io(target_path.to_path_buf(), e))?;
     
-    // Set executable bit if needed (mode 100755)
-    if mode == 100755 {
+    // Set executable bit if needed
+    if mode == MODE_EXEC {
         fs::io::set_executable(target_path)
             .map_err(|e| ReviusError::Io(target_path.to_path_buf(), e))?;
     }

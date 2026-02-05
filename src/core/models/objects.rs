@@ -20,6 +20,10 @@ pub struct FileInfo {
     pub recipe: Vec<u8>,
 }
 
+pub const MODE_DIR: u32 = 0o040000;
+pub const MODE_FILE: u32 = 0o100644;
+pub const MODE_EXEC: u32 = 0o100755;
+
 #[derive(Debug, Clone)]
 pub struct StagedFile {
     pub path: String,

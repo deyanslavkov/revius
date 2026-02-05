@@ -1,4 +1,4 @@
-use crate::core::models::objects::{StagedFile, TreeEntry};
+use crate::core::models::objects::{StagedFile, TreeEntry, MODE_DIR};
 use crate::error::ReviusError;
 use crate::fs::paths;
 use crate::utils::hash;
@@ -100,7 +100,7 @@ pub fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], R
                     }
                     TreeNode::Dir { .. } => {
                         let child_hash = write_tree_to_db(tx, child)?;
-                        child_data.push((name.clone(), child_hash, 0o040000, true));
+                        child_data.push((name.clone(), child_hash, MODE_DIR, true));
                     }
                 }
             }
@@ -123,7 +123,7 @@ pub fn write_tree_to_db(tx: &Transaction, node: &TreeNode) -> Result<[u8; 32], R
                 .into_iter()
                 .map(|(name, hash, mode, is_dir)| TreeEntry {
                     parent_hash,
-                    name, // Move the string here
+                    name,
                     object_hash: hash,
                     mode,
                     is_dir,
