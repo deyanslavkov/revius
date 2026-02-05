@@ -22,23 +22,19 @@ pub fn create_branch_in_tx(
     branch_name: &str,
     commit_hash: &[u8; 32],
 ) -> Result<(), ReviusError> {
-    // Validate branch name
     validation::validate_branch_name(branch_name)?;
 
-    // Verify commit exists
     if !db::commits::commit_exists(tx, commit_hash)? {
         return Err(ReviusError::CommitNotFound(
             hash::hash_to_hex(commit_hash)
         ));
     }
     
-    // Check if branch already exists
     let branch_ref = branch_ref_path(branch_name);
     if db::refs::ref_exists(tx, &branch_ref)? {
         return Err(ReviusError::BranchAlreadyExists(branch_name.to_string()));
     }
     
-    // Create the branch ref
     db::refs::upsert_ref(tx, &branch_ref, 0, commit_hash)?;
     
     Ok(())
@@ -131,7 +127,7 @@ pub fn rename_branch(repo: &Repository, old_name: Option<&str>, new_name: &str) 
 }
 
 /// Delete a branch with safety checks (can't delete current, can't delete if unmerged). Returns the commit hash where the branch pointed
-pub fn delete_branch(repo: &Repository, branch_name: &str, _force: bool) -> Result<[u8; 32], ReviusError> {
+pub fn delete_branch(repo: &Repository, branch_name: &str, force: bool) -> Result<[u8; 32], ReviusError> {
     let ref_path = branch_ref_path(branch_name);
 
     if !db::refs::ref_exists(&repo.conn, &ref_path)? {
@@ -149,8 +145,26 @@ pub fn delete_branch(repo: &Repository, branch_name: &str, _force: bool) -> Resu
     let commit_hash = db::refs::get_ref(&repo.conn, &ref_path)?
         .ok_or_else(|| ReviusError::BranchNotFound(branch_name.to_string()))?;
 
-    // TODO: If not force, check if branch is merged
-    // For now, we'll skip the merge check
+    // Check if merged (Safety)
+    if !force {
+        // Resolve HEAD (should exist if we have branches)
+        let head_commit = db::refs::resolve_head(&repo.conn)?
+             .ok_or(ReviusError::NoCommitsYet)?;
+
+        // If the branch tip is an ancestor of HEAD, it is fully merged.
+        // We reuse the merge-base logic.
+        match crate::core::merge::find_merge_base(&repo.conn, head_commit, commit_hash)? {
+            Some(base) if base == commit_hash => {
+                // Fully merged, allow delete
+            },
+            _ => {
+                return Err(ReviusError::Usage(format!(
+                    "The branch '{}' is not fully merged. If you are sure you want to delete it, run 'rvs branch -D {}'.",
+                    branch_name, branch_name
+                )));
+            }
+        }
+    }
 
     let tx = repo.conn.unchecked_transaction().map_err(|e| {
         ReviusError::Db(format!("Failed to begin transaction for branch deletion: {}", e))
