@@ -142,12 +142,12 @@ pub fn get_all_tree_files(conn: &Connection, tree_hash: &[u8; 32])
 -> Result<BTreeMap<String, [u8; 32]>, ReviusError> {
     let mut result = BTreeMap::new();
     
-    walk_tree(conn, tree_hash, "", &mut |path, entry| {
-        if !entry.is_dir {
-            result.insert(path.to_string(), entry.object_hash);
-        }
-        Ok(())
-    })?;
+    // Delegated to SQL Recursive CTE
+    let files = db::trees::get_recursive_files(conn, tree_hash)?;
+    
+    for (path, hash, _) in files {
+        result.insert(path, hash);
+    }
     
     Ok(result)
 }
@@ -160,12 +160,12 @@ pub fn get_tree_snapshot(
 ) -> Result<BTreeMap<String, (Option<[u8; 32]>, u32)>, ReviusError> {
     let mut snapshot = BTreeMap::new();
 
-    walk_tree(conn, &tree_hash, "", &mut |path, entry| {
-        if !entry.is_dir {
-             snapshot.insert(path.to_string(), (Some(entry.object_hash), entry.mode));
-        }
-        Ok(())
-    })?;
+    // Delegated to SQL Recursive CTE
+    let files = db::trees::get_recursive_files(conn, &tree_hash)?;
+    
+    for (path, hash, mode) in files {
+        snapshot.insert(path, (Some(hash), mode));
+    }
 
     Ok(snapshot)
 }
@@ -176,46 +176,7 @@ pub fn get_all_files_in_tree(
     conn: &Connection,
     tree_hash: &[u8; 32],
 ) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError> {
-    let mut results = Vec::new();
-
-    walk_tree(conn, tree_hash, "", &mut |path, entry| {
-        if !entry.is_dir {
-            // Only this use case needs file size
-            let size = db::trees::get_file_size(conn, &entry.object_hash)?;
-            results.push((path.to_string(), entry.object_hash, entry.mode, size));
-        }
-        Ok(())
-    })?;
-
-    Ok(results)
-}
-
-/// Generic recursive tree walker.
-/// Visits every node and calls `callback`. Recurses automatically for directories.
-fn walk_tree<F>(
-    conn: &Connection,
-    parent_hash: &[u8; 32],
-    path_prefix: &str,
-    callback: &mut F
-) -> Result<(), ReviusError>
-where
-    F: FnMut(&str, &TreeEntry) -> Result<(), ReviusError>,
-{
-    let entries = db::trees::get_tree_entries(conn, parent_hash)?;
-
-    for entry in entries {
-        let full_path = if path_prefix.is_empty() {
-            entry.name.clone()
-        } else {
-            format!("{}/{}", path_prefix, entry.name)
-        };
-
-        callback(&full_path, &entry)?;
-
-        if entry.is_dir {
-            walk_tree(conn, &entry.object_hash, &full_path, callback)?;
-        }
-    }
-
-    Ok(())
+    // Delegated to SQL Recursive CTE with JOIN on Files table
+    // Replaces the previous N+1 logic that called get_file_size for every file
+    db::trees::get_recursive_files_with_size(conn, tree_hash)
 }

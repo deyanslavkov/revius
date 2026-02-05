@@ -3,8 +3,6 @@ use rusqlite::{Connection, Transaction};
 use std::collections::HashSet;
 
 /// Creates a temporary table to hold hashes that must be preserved.
-/// We use a (hash, type) composite PK to allow different object types to share hashes 
-/// (though unlikely in practice, it's correct) and to reuse one table.
 /// Types: 1=Commit, 2=Tree, 3=File, 4=Blob
 pub fn create_keep_list_table(tx: &Transaction) -> Result<(), ReviusError> {
     tx.execute(
@@ -24,7 +22,82 @@ pub fn create_keep_list_table(tx: &Transaction) -> Result<(), ReviusError> {
     Ok(())
 }
 
-/// Batch inserts hashes into the keep list.
+/// Uses Recursive CTEs to find all reachable Commits, Trees, and Files directly in the DB.
+/// Returns a list of all reachable File hashes so the application can process their recipes (Blobs).
+pub fn mark_repository_structure(
+    tx: &Transaction,
+    detached_head: Option<&[u8; 32]>,
+) -> Result<Vec<[u8; 32]>, ReviusError> {
+    // 1. Seed the KeepList with the Detached HEAD (if any)
+    if let Some(head) = detached_head {
+        tx.execute(
+            "INSERT OR IGNORE INTO KeepList (hash, type) VALUES (?1, 1)",
+            [head.as_slice()],
+        ).map_err(|e| ReviusError::Db(format!("Failed to insert detached HEAD: {}", e)))?;
+    }
+
+    // 2. Mark Commits (Recursive: Refs + Detached -> Parents)
+    // We union with KeepList to pick up the detached head inserted above
+    tx.execute(
+        "INSERT OR IGNORE INTO KeepList (hash, type)
+         WITH RECURSIVE Ancestors(hash) AS (
+            SELECT commit_hash FROM Refs
+            UNION
+            SELECT hash FROM KeepList WHERE type = 1
+            UNION
+            SELECT c.parent_hash FROM Commits c JOIN Ancestors a ON c.hash = a.hash WHERE c.parent_hash IS NOT NULL
+            UNION
+            SELECT c.merge_parent_hash FROM Commits c JOIN Ancestors a ON c.hash = a.hash WHERE c.merge_parent_hash IS NOT NULL
+         )
+         SELECT hash, 1 FROM Ancestors",
+        [],
+    ).map_err(|e| ReviusError::Db(format!("Failed to mark reachable commits: {}", e)))?;
+
+    // 3. Mark Trees and Files (Recursive: Commit Trees -> Subtrees & Files)
+    // is_dir=1 -> Tree (Type 2), is_dir=0 -> File (Type 3)
+    tx.execute(
+        "INSERT OR IGNORE INTO KeepList (hash, type)
+         WITH RECURSIVE TreeWalk(hash, is_dir) AS (
+            SELECT tree_hash, 1 FROM Commits WHERE hash IN (SELECT hash FROM KeepList WHERE type=1)
+            UNION
+            SELECT t.object_hash, t.is_dir
+            FROM Trees t
+            JOIN TreeWalk p ON t.parent_hash = p.hash
+            WHERE p.is_dir = 1
+         )
+         SELECT hash, CASE WHEN is_dir=1 THEN 2 ELSE 3 END
+         FROM TreeWalk",
+        [],
+    ).map_err(|e| ReviusError::Db(format!("Failed to mark reachable trees and files: {}", e)))?;
+
+    // 4. Mark Staged Files (Roots for files)
+    tx.execute(
+        "INSERT OR IGNORE INTO KeepList (hash, type)
+         SELECT file_hash, 3 FROM Staging",
+        [],
+    ).map_err(|e| ReviusError::Db(format!("Failed to mark staged files: {}", e)))?;
+
+    // 5. Retrieve all File hashes (Type 3) so we can check Blobs in Rust
+    // (We cannot parse binary recipes in SQL)
+    let mut stmt = tx.prepare("SELECT hash FROM KeepList WHERE type = 3")
+        .map_err(|e| ReviusError::Db(format!("Failed to prepare file fetch: {}", e)))?;
+    
+    let file_hashes = stmt.query_map([], |row| {
+        let vec: Vec<u8> = row.get(0)?;
+        crate::utils::hash::vec_to_hash(&vec).map_err(|e| {
+            rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)))
+        })
+    }).map_err(|e| ReviusError::Db(format!("Failed to query reachable files: {}", e)))?;
+
+    let mut result = Vec::new();
+    for h in file_hashes {
+        result.push(h.map_err(|e| ReviusError::Db(format!("Error reading file hash: {}", e)))?);
+    }
+
+    Ok(result)
+}
+
+/// Batch inserts hashes into the keep list (used for Blobs)
 pub fn populate_keep_list(
     tx: &Transaction,
     hashes: &HashSet<[u8; 32]>,
