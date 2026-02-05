@@ -19,6 +19,7 @@ pub fn main() {
         Commands::Reset(args) => commands::reset::run(args),
         Commands::Restore(args) => commands::restore::run(args),
         Commands::Gc(args) => commands::gc::run(args),
+        Commands::Config(args) => commands::config::run(args),
     };
 
     if let Err(e) = result {

@@ -69,6 +69,8 @@ pub fn print_no_user_configured() {
     eprintln!("  name = \"Your Name\"");
     eprintln!("  email = \"your.email@example.com\"");
     eprintln!();
+    eprintln!("Or use 'rvs config <key> <value>' or 'rvs config --user <name> <email>'");
+    eprintln!();
     
     #[cfg(target_os = "windows")]
     eprintln!("  Config location: %APPDATA%\\revius\\config.toml");
@@ -492,4 +494,23 @@ pub fn print_gc_stats(stats: &GcStats) {
     if stats.commits_deleted == 0 && stats.trees_deleted == 0 && stats.files_deleted == 0 && stats.blobs_deleted == 0 {
         println!("{}", "The repository is already optimized.".green());
     }
+}
+
+pub fn print_config_set_success(key: &str, value: &str, scope: &str) {
+    println!(
+        "{} Set {} to '{}' ({})",
+        "✓".green().bold(),
+        key.bold(),
+        value,
+        scope
+    );
+}
+
+pub fn print_user_setup_success(name: &str, email: &str) {
+    println!(
+        "{} Configured global user identity:\n  Name:  {}\n  Email: {}",
+        "✓".green().bold(),
+        name.bold(),
+        email.bold()
+    );
 }

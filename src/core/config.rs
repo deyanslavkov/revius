@@ -1,6 +1,7 @@
-use crate::core::models::config::{Config, RepoConfig, UserConfig};
+use crate::core::models::config::{Config, RepoConfig, UserConfig, UserInfo};
 use crate::error::ReviusError;
 use crate::fs;
+use crate::fs::paths;
 use std::path::Path;
 
 pub fn merge(repo: RepoConfig, user: Option<UserConfig>) -> Result<Config, ReviusError> {
@@ -75,4 +76,82 @@ pub fn load_config(repo_root: &Path) -> Result<Config, ReviusError> {
     let repo_cfg = load_repo_config(repo_root);
     let user_cfg = load_user_config();
     merge(repo_cfg, user_cfg)
+}
+
+pub fn set_user_identity(name: &str, email: &str) -> Result<(), ReviusError> {
+    let mut config = fs::config::load_user_config()?;
+    
+    let user_info = config.user.get_or_insert(UserInfo::default());
+    user_info.name = Some(name.to_string());
+    user_info.email = Some(email.to_string());
+    
+    let config_path = paths::get_user_config_path()
+        .ok_or_else(|| ReviusError::Config("Could not determine user config path".to_string()))?;
+        
+    fs::config::write_user_config(&config_path, &config)
+}
+
+pub fn set_config_value(key: &str, value: &str) -> Result<String, ReviusError> {
+    if key.starts_with("user.") {
+        set_user_config_value(key, value)
+    } else if key.starts_with("core.") {
+        set_repo_config_value(key, value)
+    } else {
+         Err(ReviusError::Config(format!("Unknown configuration scope for key '{}'. Keys must start with 'user.' or 'core.'", key)))
+    }
+}
+
+fn set_user_config_value(key: &str, value: &str) -> Result<String, ReviusError> {
+     let mut config = fs::config::load_user_config()?;
+     let user_info = config.user.get_or_insert(UserInfo::default());
+
+     match key {
+        "user.name" => user_info.name = Some(value.to_string()),
+        "user.email" => user_info.email = Some(value.to_string()),
+        _ => return Err(ReviusError::Config(format!("Unknown user config key: '{}'", key))),
+     }
+     
+     let config_path = paths::get_user_config_path()
+        .ok_or_else(|| ReviusError::Config("Could not determine user config path".to_string()))?;
+        
+     fs::config::write_user_config(&config_path, &config)?;
+     Ok("global".to_string())
+}
+
+fn set_repo_config_value(key: &str, value: &str) -> Result<String, ReviusError> {
+    let current_dir = paths::get_current_dir()?;
+    let repo_root = paths::find_repo_root(&current_dir)?;
+    
+    let mut config = fs::config::load_repo_config(&repo_root)?;
+    
+    match key {
+        "core.compression" => config.core.compression = parse_bool(value)?,
+        "core.compression_level" => {
+            let val = parse_u8(value)?;
+            if val < 1 || val > 22 { return Err(ReviusError::Config("compression_level must be between 1 and 22".to_string())); }
+            config.core.compression_level = val;
+        },
+        "core.chunking" => config.core.chunking = parse_bool(value)?,
+        "core.chunk_min" => config.core.chunk_min = parse_u32(value)?,
+        "core.chunk_avg" => config.core.chunk_avg = parse_u32(value)?,
+        "core.chunk_max" => config.core.chunk_max = parse_u32(value)?,
+        "core.case_sensitive" => config.core.case_sensitive = parse_bool(value)?,
+        _ => return Err(ReviusError::Config(format!("Unknown core config key: '{}'", key))),
+    }
+    
+    let config_path = paths::get_repo_config_path(&repo_root);
+    fs::config::write_repo_config(&config_path, &config)?;
+    Ok("local".to_string())
+}
+
+fn parse_bool(v: &str) -> Result<bool, ReviusError> {
+    v.parse::<bool>().map_err(|_| ReviusError::Config(format!("Invalid boolean value: '{}' (expected true/false)", v)))
+}
+
+fn parse_u8(v: &str) -> Result<u8, ReviusError> {
+    v.parse::<u8>().map_err(|_| ReviusError::Config(format!("Invalid number: '{}'", v)))
+}
+
+fn parse_u32(v: &str) -> Result<u32, ReviusError> {
+    v.parse::<u32>().map_err(|_| ReviusError::Config(format!("Invalid number: '{}'", v)))
 }

@@ -46,6 +46,9 @@ pub enum Commands {
 
     #[command(about = "Cleanup unnecessary files and optimize the local repository")]
     Gc(GcArgs),
+
+    #[command(about = "Get and set repository or global options")]
+    Config(ConfigArgs),
 }
 
 #[derive(Parser)]
@@ -165,4 +168,16 @@ pub struct RestoreArgs {
 pub struct GcArgs {
     #[arg(long, help = "Do not delete anything, just show what would be deleted")]
     pub dry_run: bool,
+}
+
+#[derive(Parser)]
+pub struct ConfigArgs {
+    #[arg(help = "Configuration key (e.g. user.name, core.compression)")]
+    pub key: Option<String>,
+
+    #[arg(help = "Configuration value")]
+    pub value: Option<String>,
+
+    #[arg(long, num_args = 2, value_names = ["NAME", "EMAIL"], help = "Shortcut to set user name and email globally", conflicts_with_all = ["key", "value"])]
+    pub user: Option<Vec<String>>,
 }

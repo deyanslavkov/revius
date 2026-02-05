@@ -10,3 +10,4 @@ pub mod merge;
 pub mod reset;
 pub mod restore;
 pub mod gc;
+pub mod config;
