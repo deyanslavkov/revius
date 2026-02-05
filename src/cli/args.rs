@@ -26,6 +26,9 @@ pub enum Commands {
     #[command(about = "Show commit history")]
     Log(LogArgs),
 
+    #[command(about = "Manage reflog information")]
+    Reflog(ReflogArgs),
+
     #[command(about = "List, create, rename, or delete branches")]
     Branch(BranchArgs),
 
@@ -65,7 +68,7 @@ pub struct CommitArgs {
 
 #[derive(Parser)]
 pub struct StatusArgs {
-    // Currently no arguments, but can add --short, --verbose, etc. later
+    // Currently no arguments
 }
 
 #[derive(Parser)]
@@ -81,6 +84,15 @@ pub struct LogArgs {
     
     #[arg(long, help = "Show only the first parent in merge commits")]
     pub first_parent: bool,
+}
+
+#[derive(Parser)]
+pub struct ReflogArgs {
+    #[arg(help = "The ref to show log for. If omitted, shows all reflog entries.")]
+    pub ref_name: Option<String>,
+
+    #[arg(short = 'n', long, help = "Limit the number of entries")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Parser)]

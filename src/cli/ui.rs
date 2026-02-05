@@ -1,7 +1,7 @@
 use colored::Colorize;
 use std::path::Path;
 use crate::utils;
-use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, HeadState};
+use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, ReflogEntry, HeadState};
 use crate::utils::hash::hash_to_short_hex;
 use crate::utils::{hash, time};
 use crate::core::merge::{ConflictType, MergeConflict};
@@ -173,6 +173,39 @@ pub fn print_log(commits: &[CommitInfo], options: &LogOptions) {
         for commit in commits {
             print_commit_detailed(commit);
         }
+    }
+}
+
+pub fn print_reflog(entries: &[ReflogEntry]) {
+    if entries.is_empty() {
+        println!("Reflog is empty.");
+        return;
+    }
+
+    for (i, entry) in entries.iter().enumerate() {
+        let old_short = if let Some(h) = entry.old_hash {
+            hash::hash_to_short_hex(&h)
+        } else {
+            "00000000".to_string()
+        };
+
+        let new_short = if let Some(h) = entry.new_hash {
+            hash::hash_to_short_hex(&h)
+        } else {
+            "00000000".to_string()
+        };
+
+        // If we are showing "all", the HEAD@{n} notation is confusing because it mixes different refs.
+        // We will show the Ref Name explicitly.
+        
+        println!(
+            "{} {} ({} -> {}): {}",
+            entry.ref_path.cyan(),
+            format!("[{}]", i).dimmed(), // Index in the output list
+            old_short.red(),
+            new_short.green(),
+            entry.action
+        );
     }
 }
 

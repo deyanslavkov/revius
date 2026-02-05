@@ -99,6 +99,16 @@ pub struct LogOptions {
     pub first_parent: bool,
 }
 
+#[derive(Debug)]
+pub struct ReflogEntry {
+    pub id: i64,
+    pub ref_path: String,
+    pub old_hash: Option<[u8; 32]>,
+    pub new_hash: Option<[u8; 32]>,
+    pub action: String,
+    pub timestamp: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
     pub hash: [u8; 32],
