@@ -50,7 +50,13 @@ pub fn walk_directory(
     let mut result = Vec::new();
 
     let mut builder = WalkBuilder::new(start_path);
+    
+    // 1. Add the root ignore file (explicitly passed)
     builder.add_ignore(ignore_path);
+    
+    // 2. Add custom ignore filename for recursive ignoring
+    builder.add_custom_ignore_filename(".rvsignore");
+    
     builder.hidden(false);
     builder.git_ignore(false);
 
