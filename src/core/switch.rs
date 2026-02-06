@@ -298,6 +298,12 @@ pub fn apply_workspace_changes(
         if fs::paths::path_exists(&abs_path) {
             fs::io::delete_file(&abs_path)
                 .map_err(|e| ReviusError::Io(abs_path.clone(), e))?;
+            
+            // Clean up empty directories
+            if let Some(parent) = abs_path.parent() {
+                 // We ignore errors here  if dir is not empty
+                 let _ = std::fs::remove_dir(parent);
+            }
         }
     }
     
