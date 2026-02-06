@@ -1,11 +1,7 @@
 use crate::db::{meta, refs};
 use crate::error::ReviusError;
+use crate::core::models::objects::HeadReference;
 use rusqlite::{Connection, Transaction};
-
-pub enum HeadState {
-    Branch(String),  // e.g., "refs/heads/main"
-    Detached([u8; 32]),  // commit hash
-}
 
 pub const REF_TYPE_BRANCH: u8 = 0;
 pub const REF_TYPE_TAG: u8 = 1;
@@ -61,19 +57,19 @@ pub fn infer_ref_type(ref_path: &str) -> Result<u8, ReviusError> {
     }
 }
 
-pub fn get_head_state(conn: &Connection) -> Result<HeadState, ReviusError> {
+pub fn get_head_state(conn: &Connection) -> Result<HeadReference, ReviusError> {
     let head_value = meta::get_meta(conn, "HEAD")?
         .ok_or_else(|| ReviusError::Db("HEAD not found".to_string()))?;
     
     if head_value.starts_with("ref: ") {
         let ref_path = head_value.strip_prefix("ref: ").unwrap();
-        Ok(HeadState::Branch(ref_path.to_string()))
+        Ok(HeadReference::Branch(ref_path.to_string()))
     } else {
         let hash = hex::decode(&head_value)
             .map_err(|e| ReviusError::Db(format!("Invalid HEAD hash: {}", e)))?;
         let hash_array = crate::utils::hash::vec_to_hash(&hash)
             .map_err(|e| ReviusError::Db(e))?;
-        Ok(HeadState::Detached(hash_array))
+        Ok(HeadReference::Detached(hash_array))
     }
 }
 

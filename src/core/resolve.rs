@@ -1,6 +1,7 @@
 use crate::error::ReviusError;
 use crate::utils::hash;
 use crate::db;
+use crate::core::models::objects::HeadReference;
 use rusqlite::Connection;
 
 #[derive(Debug, PartialEq)]
@@ -90,13 +91,13 @@ fn resolve_base(conn: &Connection, base: &str) -> Result<ResolvedTarget, ReviusE
         // We need to know if HEAD points to a ref or is detached
         let head_state = crate::core::refs::get_head_state(conn)?;
         match head_state {
-            crate::core::refs::HeadState::Branch(ref_path) => {
+            HeadReference::Branch(ref_path) => {
                 let name = ref_path.strip_prefix("refs/heads/").unwrap_or(&ref_path).to_string();
                 let hash = db::refs::get_ref(conn, &ref_path)?
                     .ok_or_else(|| ReviusError::Db(format!("Ref {} not found", ref_path)))?;
                 return Ok(ResolvedTarget::Branch(name, hash));
             }
-            crate::core::refs::HeadState::Detached(hash) => {
+            HeadReference::Detached(hash) => {
                 return Ok(ResolvedTarget::Commit(hash));
             }
         }

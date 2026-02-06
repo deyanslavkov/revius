@@ -1,5 +1,5 @@
 use crate::core::models::repository::Repository;
-use crate::core::models::objects::{SwitchResult, HeadState, SwitchPlan};
+use crate::core::models::objects::{SwitchResult, HeadState, HeadReference, SwitchPlan};
 use crate::core::resolve::{resolve_target, ResolvedTarget};
 use crate::core::refs::{self as core_refs};
 use crate::core::tree::get_all_files_in_tree;
@@ -165,16 +165,13 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
 
 /// Helper to get the full HeadState (including hash)
 pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u8; 32]>), ReviusError> {
-    // We use core::refs to parse the meta value, but we need to enrich it with the hash
-    // Note: core_refs::HeadState is a different enum (simple) than objects::HeadState (rich)
+    // core::refs now returns HeadReference (Simple state)
     let simple_state = core_refs::get_head_state(conn)?;
     
     match simple_state {
-        core_refs::HeadState::Branch(ref_path) => {
-            // core::refs returns full path "refs/heads/name". We strip it for the public model if needed,
-            // or we can store the short name.
+        HeadReference::Branch(ref_path) => {
+            // Convert to rich HeadState
             let name = ref_path.strip_prefix("refs/heads/").unwrap_or(&ref_path).to_string();
-
             let hash = db::refs::get_ref(conn, &ref_path)?;
             
             if let Some(h) = hash {
@@ -184,7 +181,7 @@ pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u
                 Ok((HeadState::Branch(name, [0; 32]), None))
             }
         }
-        core_refs::HeadState::Detached(hash) => {
+        HeadReference::Detached(hash) => {
             Ok((HeadState::Detached(hash), Some(hash)))
         }
     }
@@ -298,7 +295,7 @@ pub fn apply_workspace_changes(
         if fs::paths::path_exists(&abs_path) {
             fs::io::delete_file(&abs_path)
                 .map_err(|e| ReviusError::Io(abs_path.clone(), e))?;
-            
+
             // Clean up empty directories
             if let Some(parent) = abs_path.parent() {
                  // We ignore errors here  if dir is not empty

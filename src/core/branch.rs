@@ -1,5 +1,6 @@
 use crate::core::models::repository::Repository;
-use crate::core::refs::{get_head_state, update_head_to_branch, HeadState};
+use crate::core::refs::{get_head_state, update_head_to_branch};
+use crate::core::models::objects::HeadReference;
 use crate::db;
 use crate::error::ReviusError;
 use crate::utils::{hash, validation};
@@ -208,7 +209,7 @@ pub fn list_branches(repo: &Repository) -> Result<Vec<(String, [u8; 32], bool)>,
 /// Get the current branch name (if on a branch). Returns None if in detached HEAD
 pub fn get_current_branch_name(repo: &Repository) -> Result<Option<String>, ReviusError> {
     match get_head_state(&repo.conn)? {
-        HeadState::Branch(ref_path) => Ok(Some(extract_branch_name(&ref_path)?)),
-        HeadState::Detached(_) => Ok(None),
+        HeadReference::Branch(ref_path) => Ok(Some(extract_branch_name(&ref_path)?)),
+        HeadReference::Detached(_) => Ok(None),
     }
 }

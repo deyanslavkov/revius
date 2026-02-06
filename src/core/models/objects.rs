@@ -130,10 +130,20 @@ pub struct SwitchResult {
     pub files_deleted: usize,
 }
 
+/// Represents the resolved state of HEAD, including the branch name (if any) and the commit hash.
+/// Used for UI display and high-level logic (e.g., switch results).
 #[derive(Debug, Clone)]
 pub enum HeadState {
-    Branch(String, [u8; 32]),
+    Branch(String, [u8; 32]), // (short_name, commit_hash)
     Detached([u8; 32]),
+}
+
+/// Represents the raw value stored in HEAD (either a ref path or a commit hash).
+/// Used for internal low-level reference handling.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HeadReference {
+    Branch(String),  // e.g., "refs/heads/main"
+    Detached([u8; 32]),  // commit hash
 }
 
 #[derive(Debug)]

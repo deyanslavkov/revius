@@ -1,8 +1,7 @@
 use crate::core::content::read_and_hash_file;
-use crate::core::models::objects::{StagedFile, StatusInfo};
+use crate::core::models::objects::{StagedFile, StatusInfo, HeadReference};
 use crate::core::models::repository::Repository;
 use crate::core::refs::get_head_state;
-use crate::core::refs::HeadState;
 use crate::core::tree::get_all_tree_files;
 use crate::db;
 use crate::error::ReviusError;
@@ -16,14 +15,14 @@ pub fn get_status_info(repo: &Repository) -> Result<StatusInfo, ReviusError> {
 
     let head_state = get_head_state(conn)?;
     let (branch_name, detached_commit) = match head_state {
-        HeadState::Branch(ref_path) => {
+        HeadReference::Branch(ref_path) => {
             let branch = ref_path
                 .strip_prefix("refs/heads/")
                 .unwrap_or(&ref_path)
                 .to_string();
             (Some(branch), None)
         }
-        HeadState::Detached(commit_hash) => (None, Some(commit_hash)),
+        HeadReference::Detached(commit_hash) => (None, Some(commit_hash)),
     };
 
     let head_files = get_head_files(conn)?;

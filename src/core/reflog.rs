@@ -1,6 +1,6 @@
 use crate::core::models::repository::Repository;
-use crate::core::models::objects::ReflogEntry;
-use crate::core::refs::{self, HeadState};
+use crate::core::models::objects::{ReflogEntry, HeadReference};
+use crate::core::refs;
 use crate::db;
 use crate::error::ReviusError;
 use rusqlite::Transaction;
@@ -41,7 +41,7 @@ pub fn log_head_update(
     // 2. Check if we are on a branch, and if so, log to the branch ref too.
     let head_state = refs::get_head_state(tx)?;
 
-    if let HeadState::Branch(ref_path) = head_state {
+    if let HeadReference::Branch(ref_path) = head_state {
         // ref_path is already full path e.g. "refs/heads/main" from core::refs logic
         db::reflog::insert_reflog(tx, &ref_path, old_hash, Some(new_hash), action)?;
     }
