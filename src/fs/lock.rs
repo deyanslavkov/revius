@@ -12,16 +12,22 @@ impl LockFile {
     pub fn acquire(repo_root: &Path) -> Result<Self, ReviusError> {
         let lock_path = repo_root.join(".rvs").join("lock");
 
-        if lock_path.exists() {
-            return Err(ReviusError::Usage(format!(
-                "Repository is locked. Another process is running.\nIf not, try removing the lock file manually: '{}'",
-                lock_path.display()
-            )));
-        }
-
-        // Create the lock file (optionally write PID, but empty is fine for now)
-        fs::write(&lock_path, "")
-            .map_err(|e| ReviusError::Io(lock_path.clone(), e))?;
+        // Use OpenOptions to atomically create the file.
+        // create_new(true) fails if the file already exists.
+        fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock_path)
+            .map_err(|e| {
+                if e.kind() == std::io::ErrorKind::AlreadyExists {
+                    ReviusError::Usage(format!(
+                        "Repository is locked. Another process is running.\nIf not, try removing the lock file manually: '{}'",
+                        lock_path.display()
+                    ))
+                } else {
+                    ReviusError::Io(lock_path.clone(), e)
+                }
+            })?;
 
         Ok(Self { path: lock_path })
     }
@@ -29,8 +35,7 @@ impl LockFile {
 
 impl Drop for LockFile {
     fn drop(&mut self) {
-        // Best-effort removal. If it fails, not much we can do in Drop,
-        // but typically it succeeds.
+        // Best-effort removal.
         let _ = fs::remove_file(&self.path);
     }
 }
