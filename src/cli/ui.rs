@@ -78,7 +78,7 @@ pub fn print_no_user_configured() {
 }
 
 pub fn print_detached_head_warning(commit_hash: &[u8; 32]) {
-    let short_hash = utils::hash::hash_to_short_hex(&commit_hash);
+    let short_hash = utils::hash::hash_to_short_hex(commit_hash);
 
     eprintln!("Warning: You are in a detached HEAD state");
     eprintln!();

@@ -28,18 +28,16 @@ pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usiz
     let merge_head_path = repo.root.join(".rvs").join("MERGE_HEAD");
     let mut merge_parent_hash: Option<[u8; 32]> = None;
 
-    if merge_head_path.exists() {
-        if let Ok(content) = fs::io::read_file(&merge_head_path) {
+    if merge_head_path.exists()
+        && let Ok(content) = fs::io::read_file(&merge_head_path) {
              let content_str = String::from_utf8_lossy(&content);
-             if let Ok(hash_bytes) = hex::decode(content_str.trim()) {
-                 if hash_bytes.len() == 32 {
+             if let Ok(hash_bytes) = hex::decode(content_str.trim())
+                 && hash_bytes.len() == 32 {
                      let mut arr = [0u8; 32];
                      arr.copy_from_slice(&hash_bytes);
                      merge_parent_hash = Some(arr);
                  }
-             }
         }
-    }
 
     let user_name = repo.config.user_name.as_ref()
         .ok_or_else(|| ReviusError::Config("User name not configured".to_string()))?;

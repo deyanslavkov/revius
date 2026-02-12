@@ -14,7 +14,7 @@ pub fn get_ref(conn: &Connection, path: &str) -> Result<Option<[u8; 32]>, Revius
 
     match result {
         Some(vec) => {
-            let hash_array = hash::vec_to_hash(&vec).map_err(|e| ReviusError::Db(e))?;
+            let hash_array = hash::vec_to_hash(&vec).map_err(ReviusError::Db)?;
             Ok(Some(hash_array))
         }
         None => Ok(None),
@@ -66,7 +66,7 @@ pub fn resolve_head(conn: &Connection) -> Result<Option<[u8; 32]>, ReviusError> 
         let hash_bytes = hex::decode(&head_value)
             .map_err(|e| ReviusError::Db(format!("Invalid HEAD hash format: {}", e)))?;
         
-        Ok(Some(hash::vec_to_hash(&hash_bytes).map_err(|e| ReviusError::Db(e))?))
+        Ok(Some(hash::vec_to_hash(&hash_bytes).map_err(ReviusError::Db)?))
     }
 }
 

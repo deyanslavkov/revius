@@ -52,7 +52,7 @@ pub fn create_branch(repo: &Repository, branch_name: &str) -> Result<[u8; 32], R
     }
 
     let current_commit = db::refs::resolve_head(&repo.conn)?
-        .ok_or_else(|| ReviusError::NoCommitsYet)?;
+        .ok_or(ReviusError::NoCommitsYet)?;
 
     let tx = repo.conn.unchecked_transaction().map_err(|e| {
         ReviusError::Db(format!("Failed to begin transaction for branch creation: {}", e))
@@ -101,7 +101,7 @@ pub fn rename_branch(repo: &Repository, old_name: Option<&str>, new_name: &str) 
         .ok_or_else(|| ReviusError::BranchNotFound(old_branch_name.clone()))?;
 
     let is_current = get_current_branch_name(repo)?
-        .map_or(false, |name| name == old_branch_name);
+        .is_some_and(|name| name == old_branch_name);
 
     let tx = repo.conn.unchecked_transaction().map_err(|e| {
         ReviusError::Db(format!("Failed to begin transaction for branch rename: {}", e))
@@ -135,13 +135,12 @@ pub fn delete_branch(repo: &Repository, branch_name: &str, force: bool) -> Resul
         return Err(ReviusError::BranchNotFound(branch_name.to_string()));
     }
 
-    if let Some(current) = get_current_branch_name(repo)? {
-        if current == branch_name {
+    if let Some(current) = get_current_branch_name(repo)?
+        && current == branch_name {
             return Err(ReviusError::CannotDeleteCurrentBranch(
                 branch_name.to_string(),
             ));
         }
-    }
 
     let commit_hash = db::refs::get_ref(&repo.conn, &ref_path)?
         .ok_or_else(|| ReviusError::BranchNotFound(branch_name.to_string()))?;
@@ -198,7 +197,7 @@ pub fn list_branches(repo: &Repository) -> Result<Vec<(String, [u8; 32], bool)>,
     let result = branches
         .into_iter()
         .map(|(name, hash)| {
-            let is_current = current_branch.as_ref().map_or(false, |c| c == &name);
+            let is_current = current_branch.as_ref() == Some(&name);
             (name, hash, is_current)
         })
         .collect();

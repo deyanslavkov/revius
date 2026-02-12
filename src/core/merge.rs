@@ -503,18 +503,16 @@ pub fn find_merge_base(
     // Alternate between the two searches
     while !queue1.is_empty() || !queue2.is_empty() {
         // Search from commit1
-        if !queue1.is_empty() {
-            if let Some(lca) = bfs_step(conn, &mut queue1, &mut visited1, &visited2)? {
+        if !queue1.is_empty()
+            && let Some(lca) = bfs_step(conn, &mut queue1, &mut visited1, &visited2)? {
                 return Ok(Some(lca));
             }
-        }
 
         // Search from commit2
-        if !queue2.is_empty() {
-            if let Some(lca) = bfs_step(conn, &mut queue2, &mut visited2, &visited1)? {
+        if !queue2.is_empty()
+            && let Some(lca) = bfs_step(conn, &mut queue2, &mut visited2, &visited1)? {
                 return Ok(Some(lca));
             }
-        }
     }
 
     Ok(None)

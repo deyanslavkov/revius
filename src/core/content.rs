@@ -25,7 +25,7 @@ pub fn store_blob(tx: &Transaction, path: &Path, chunk: &[u8], chunk_hash: &[u8;
             .map_err(|e| {
                 ReviusError::Io(
                     path.to_path_buf(),
-                    std::io::Error::new(std::io::ErrorKind::Other, e),
+                    std::io::Error::other(e),
                 )
             })?;
         (compressed, format!("zstd{}", compression_level))
@@ -53,7 +53,7 @@ pub fn store_file_content(tx: &Transaction, path: &Path, file_hash: &[u8; 32], f
             repo.config.chunk_max,
         )
     } else {
-        vec![&file_data[..]]
+        vec![file_data]
     };
 
     let mut blob_count = 0;
@@ -63,7 +63,7 @@ pub fn store_file_content(tx: &Transaction, path: &Path, file_hash: &[u8; 32], f
     .collect();
 
     for (chunk, chunk_hash) in chunks.iter().zip(chunk_hashes.iter()) {
-        let was_new = store_blob(tx, path, chunk, &chunk_hash, repo.config.compression, repo.config.compression_level)?;
+        let was_new = store_blob(tx, path, chunk, chunk_hash, repo.config.compression, repo.config.compression_level)?;
         if was_new {
             blob_count += 1;
         }

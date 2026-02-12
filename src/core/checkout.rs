@@ -66,12 +66,11 @@ pub fn checkout_file(
     let content = reconstruct_file(conn, file_hash)?;
     
     // Ensure parent directory exists
-    if let Some(parent) = target_path.parent() {
-        if !fs::paths::path_exists(parent) {
+    if let Some(parent) = target_path.parent()
+        && !fs::paths::path_exists(parent) {
             fs::io::create_dir_all(parent)
                 .map_err(|e| ReviusError::Io(parent.to_path_buf(), e))?;
         }
-    }
     
     // Write file
     fs::io::write_binary(target_path, &content)

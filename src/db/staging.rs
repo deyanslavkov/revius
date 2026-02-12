@@ -30,8 +30,7 @@ pub fn get_staged_file(tx: &Transaction, path: &str) -> Result<Option<StagedFile
                 .map_err(|e| ReviusError::Db(format!("Failed to get size from staged file '{}': {}", path, e)))? 
                 as u64,
             modified_at: row.get::<_, i64>(3)
-                .map_err(|e| ReviusError::Db(format!("Failed to get mtime from staged file '{}': {}", path, e)))? 
-                as i64,
+                .map_err(|e| ReviusError::Db(format!("Failed to get mtime from staged file '{}': {}", path, e)))?,
         }))
     } else {
         Ok(None)

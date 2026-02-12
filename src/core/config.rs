@@ -47,11 +47,10 @@ fn validate(cfg: &Config) -> Result<(), ReviusError> {
         ));
     }
 
-    if let Some(email) = &cfg.user_email {
-        if !email.contains('@') {
+    if let Some(email) = &cfg.user_email
+        && !email.contains('@') {
             return Err(ReviusError::Config("user.email appears invalid".to_string()));
         }
-    }
 
     Ok(())
 }
@@ -62,10 +61,7 @@ pub fn load_default_repo_config() -> RepoConfig {
 }
 
 pub fn load_user_config() -> Option<UserConfig> {
-    match fs::config::load_user_config() {
-        Ok(cfg) => Some(cfg),
-        Err(_) => None,
-    }
+    fs::config::load_user_config().ok()
 }
 
 pub fn load_repo_config(repo_root: &Path) -> RepoConfig {
@@ -128,7 +124,7 @@ fn set_repo_config_value(key: &str, value: &str) -> Result<String, ReviusError> 
         "core.compression" => config.core.compression = parse_bool(value)?,
         "core.compression_level" => {
             let val = parse_u8(value)?;
-            if val < 1 || val > 22 { return Err(ReviusError::Config("compression_level must be between 1 and 22".to_string())); }
+            if !(1..=22).contains(&val) { return Err(ReviusError::Config("compression_level must be between 1 and 22".to_string())); }
             config.core.compression_level = val;
         },
         "core.chunking" => config.core.chunking = parse_bool(value)?,

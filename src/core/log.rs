@@ -57,17 +57,15 @@ pub fn get_commit_history(conn: &Connection, options: &LogOptions) -> Result<Vec
             to_visit.push_back(parent);
         }
 
-        if !options.first_parent {
-            if let Some(merge_parent) = commit.merge_parent_hash {
+        if !options.first_parent
+            && let Some(merge_parent) = commit.merge_parent_hash {
                 to_visit.push_back(merge_parent);
             }
-        }
 
-        if let Some(limit) = options.limit {
-            if commits.len() >= limit {
+        if let Some(limit) = options.limit
+            && commits.len() >= limit {
                 break;
             }
-        }
     }
 
     Ok(commits)

@@ -32,7 +32,7 @@ pub fn get_file_modified_time(path: &Path) -> io::Result<i64> {
     let metadata = fs::metadata(path)?;
     let mtime = metadata.modified()?;
     let duration = mtime.duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
     Ok(duration.as_secs() as i64)
 }
 

@@ -8,7 +8,7 @@ pub fn insert_blob(tx: &Transaction, hash: &[u8; 32], data: &[u8], compression: 
     )
     .map_err(|e| ReviusError::Db(format!(
         "Failed to insert blob (hash={}): {}",
-        utils::hash::hash_to_short_hex(&hash),
+        utils::hash::hash_to_short_hex(hash),
         e
     )))?;
     
@@ -23,7 +23,7 @@ pub fn blob_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusErro
     )
     .map_err(|e| ReviusError::Db(format!(
         "Failed to check blob existence (hash={}): {}",
-        utils::hash::hash_to_short_hex(&hash),
+        utils::hash::hash_to_short_hex(hash),
         e
     )))?;
     

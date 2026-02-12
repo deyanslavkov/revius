@@ -68,7 +68,7 @@ pub fn get_head_state(conn: &Connection) -> Result<HeadReference, ReviusError> {
         let hash = hex::decode(&head_value)
             .map_err(|e| ReviusError::Db(format!("Invalid HEAD hash: {}", e)))?;
         let hash_array = crate::utils::hash::vec_to_hash(&hash)
-            .map_err(|e| ReviusError::Db(e))?;
+            .map_err(ReviusError::Db)?;
         Ok(HeadReference::Detached(hash_array))
     }
 }

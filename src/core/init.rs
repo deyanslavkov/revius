@@ -22,7 +22,7 @@ pub fn create_repository(path: &Path) -> Result<Repository, ReviusError> {
     let conn = db::connection::open_db(&db_path)?;
     db::schema::create_all(&conn)?;
 
-    let lock = fs::lock::LockFile::acquire(&path)?;
+    let lock = fs::lock::LockFile::acquire(path)?;
 
     let repo_config = config::load_default_repo_config();
     fs::config::write_repo_config(&config_path, &repo_config)?;
