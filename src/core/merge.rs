@@ -90,6 +90,7 @@ fn perform_fast_forward(
     let tx = repo.conn.unchecked_transaction()
         .map_err(|e| ReviusError::Db(format!("Failed to start transaction: {}", e)))?;
     
+    // 1. Update DB State (Refs, Log, Staging)
     refs::update_head(&tx, &to)?;
 
     // Reflog update
@@ -98,18 +99,20 @@ fn perform_fast_forward(
 
     switch::update_staging_from_tree(&tx, target_commit.tree_hash)?;
     
-    tx.commit()
-        .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
-
-    // Apply workspace changes
+    // Apply workspace changes. If IO fails, DB rolls back.
     switch::apply_workspace_changes(repo, &plan)?;
 
+    // 3. Commit Transaction
+    tx.commit()
+        .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
+    
     Ok(MergeResult::FastForward { from, to })
 }
 
 /// Internal struct to track the merge plan
 struct MergePlan {
     clean: Vec<(String, [u8; 32], u32)>, // path, hash, mode
+    to_delete: Vec<String>, // Explicit list of files to delete
     conflicts: Vec<ConflictEntry>,
 }
 
@@ -146,7 +149,10 @@ fn perform_three_way_merge(
     // Calculate Merge Plan (Clean vs Conflicts)
     let plan = plan_three_way_merge(&base_tree, &our_tree, &their_tree);
 
-    let files_changed = plan.clean.len();
+    // Check for collisions with untracked files before doing anything
+    check_collisions(repo, &plan)?;
+
+    let files_changed = plan.clean.len() + plan.to_delete.len();
 
     // Start transaction for DB updates
     let tx = repo.conn.unchecked_transaction()
@@ -157,7 +163,21 @@ fn perform_three_way_merge(
     
     let mut conflict_list = Vec::new();
 
-    // 1. Process Clean Merges
+    // 1. Process Deletions
+    for path in &plan.to_delete {
+        let target_path = repo.root.join(path);
+        if target_path.exists() {
+            if target_path.is_dir() {
+                fs::io::remove_dir_all(&target_path)
+                     .map_err(|e| ReviusError::Io(target_path.clone(), e))?;
+            } else {
+                fs::io::delete_file(&target_path)
+                    .map_err(|e| ReviusError::Io(target_path.clone(), e))?;
+            }
+        }
+    }
+
+    // 2. Process Clean Merges
     for (path, file_hash, mode) in plan.clean {
         // Upsert to staging
         // We need file size, so fetch info
@@ -166,16 +186,28 @@ fn perform_three_way_merge(
 
         // Update Workspace (Write the file)
         let target_path = repo.root.join(&path);
+        
+        // Handle collision if target is a directory
+        if target_path.is_dir() {
+            fs::io::remove_dir_all(&target_path).ok();
+        }
+
         checkout::checkout_file(&tx, &file_hash, &target_path, mode)?;
     }
 
-    // 2. Process Conflicts
+    // 3. Process Conflicts
     for conflict in plan.conflicts {
         // Generate conflict file content (with <<<<<< markers)
         let (merged_content, _) = generate_conflict_content(&tx, &conflict)?;
         
         // Write to workspace
         let target_path = repo.root.join(&conflict.path);
+        
+        // Handle collision if target is a directory
+        if target_path.exists() && target_path.is_dir() {
+             fs::io::remove_dir_all(&target_path).ok();
+        }
+
         if let Some(parent) = target_path.parent() {
             fs::io::create_dir_all(parent).ok(); // ignore if exists
         }
@@ -260,6 +292,31 @@ fn perform_three_way_merge(
     })
 }
 
+// Helper to prevent overwriting untracked files
+fn check_collisions(repo: &Repository, plan: &MergePlan) -> Result<(), ReviusError> {
+    // Collect all paths we intend to touch
+    let mut paths_to_touch = HashSet::new();
+    for (p, _, _) in &plan.clean { paths_to_touch.insert(p); }
+    for p in &plan.to_delete { paths_to_touch.insert(p); }
+    for c in &plan.conflicts { paths_to_touch.insert(&c.path); }
+
+    // Check against filesystem
+    for path in paths_to_touch {
+        let abs_path = repo.root.join(path);
+        if abs_path.exists() {
+            // Check if it is currently tracked in staging (using a separate read-only check)
+            // Note: Since we haven't cleared staging yet, we can check db
+            if !db::staging::is_staged(&repo.conn, path)? {
+                return Err(ReviusError::Usage(format!(
+                    "Merge would overwrite untracked file: '{}'. Please move or commit it.", 
+                    path
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Helper to generate conflict content with markers
 fn generate_conflict_content(conn: &Connection, conflict: &ConflictEntry) -> Result<(Vec<u8>, bool), ReviusError> {
     // Helper to fetch content safely
@@ -280,9 +337,13 @@ fn generate_conflict_content(conn: &Connection, conflict: &ConflictEntry) -> Res
 
     if let (Ok(o), Ok(t)) = (our_str, their_str) {
         // Text file: Generate markers
+        // Ensure newlines before markers to avoid "var x = 5=======" issues
+        let o_end = if o.ends_with('\n') || o.is_empty() { "" } else { "\n" };
+        let t_end = if t.ends_with('\n') || t.is_empty() { "" } else { "\n" };
+
         let content = format!(
-            "<<<<<<< HEAD\n{}\n=======\n{}\n>>>>>>> MERGE_HEAD\n",
-            o, t
+            "<<<<<<< HEAD\n{}{}\n=======\n{}{}\n>>>>>>> MERGE_HEAD\n",
+            o, o_end, t, t_end
         );
         Ok((content.into_bytes(), true))
     } else {
@@ -300,6 +361,7 @@ fn plan_three_way_merge(
     their_tree: &BTreeMap<String, (Option<[u8; 32]>, u32)>,
 ) -> MergePlan {
     let mut clean = Vec::new();
+    let mut to_delete = Vec::new();
     let mut conflicts = Vec::new();
 
     let mut all_paths = HashSet::new();
@@ -349,7 +411,8 @@ fn plan_three_way_merge(
 
             // Both deleted (existed in base, now both None) - file disappears
             (Some(_), None, None) => {
-                // No-op: file deleted by both sides
+                // We should ensure it is removed from workspace if it exists.
+                to_delete.push(path.clone());
             }
 
             // 2. Conflicts
@@ -385,7 +448,8 @@ fn plan_three_way_merge(
                         type_: ConflictType::DeletedByThemModifiedByUs,
                     });
                 } else {
-                    // We didn't modify it, they deleted it -> Clean delete (do nothing, effectively deleted)
+                    // We didn't modify it, they deleted it -> Clean delete
+                    to_delete.push(path.clone());
                 }
             }
 
@@ -401,6 +465,8 @@ fn plan_three_way_merge(
                     });
                 } else {
                     // They didn't modify, we deleted -> Clean delete
+                    // Probably already deleted from WT but to be safe
+                    to_delete.push(path.clone());
                 }
             }
             
@@ -409,7 +475,7 @@ fn plan_three_way_merge(
         }
     }
     
-    MergePlan { clean, conflicts }
+    MergePlan { clean, to_delete, conflicts }
 }
 
 /// Find the lowest common ancestor (merge base) of two commits using bidirectional BFS

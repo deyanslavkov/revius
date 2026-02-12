@@ -23,6 +23,11 @@ pub fn delete_file(path: &Path) -> io::Result<()> {
     fs::remove_file(path)
 }
 
+// Recursive folder delete
+pub fn remove_dir_all(path: &Path) -> io::Result<()> {
+    fs::remove_dir_all(path)
+}
+
 pub fn get_file_modified_time(path: &Path) -> io::Result<i64> {
     let metadata = fs::metadata(path)?;
     let mtime = metadata.modified()?;
