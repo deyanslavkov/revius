@@ -10,7 +10,7 @@ path = "src/lib.rs"
 
 # binary crate
 [[bin]]
-name = "revius"
+name = "rvs"
 path = "src/main.rs"
 
 [dependencies]
