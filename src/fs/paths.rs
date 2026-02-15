@@ -49,6 +49,31 @@ pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
     Ok(clean_path_display(&canonical))
 }
 
+/// Make a path absolute and normalize components (., ..) purely lexically.
+/// Does NOT require the path to exist.
+pub fn absolutize(path: &Path, base: &Path) -> PathBuf {
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+
+    let mut components = abs_path.components();
+    let mut stack = Vec::new();
+
+    for component in components {
+        match component {
+            std::path::Component::CurDir => {},
+            std::path::Component::ParentDir => {
+                stack.pop();
+            },
+            c => stack.push(c),
+        }
+    }
+
+    stack.iter().collect()
+}
+
 /// Removes Windows UNC prefix
 pub fn clean_path_display(path: &Path) -> PathBuf {
     let path_str = path.to_string_lossy();

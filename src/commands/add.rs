@@ -11,10 +11,10 @@ pub fn run(args: AddArgs) -> Result<(), ReviusError> {
     let repo = core::open::open_repository(&current_dir)?;
 
     // These are the scopes the user explicitly asked for
+    // Use absolutize instead of canonicalize to support adding deleted files
     let mut canonical_paths = Vec::new();
     for path in args.paths {
-        let canonical = fs::paths::canonicalize(&path)
-            .map_err(|e| ReviusError::Io(path.clone(), e))?;
+        let canonical = fs::paths::absolutize(&path, &current_dir);
         canonical_paths.push(canonical);
     }
 
