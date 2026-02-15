@@ -48,7 +48,6 @@ pub fn get_file_mode(path: &Path) -> io::Result<u32> {
     let permissions = metadata.permissions();
     // 0o111 checks for execution bit on user, group, or other
     Ok(if permissions.mode() & 0o111 != 0 {
-        use crate::core::models::objects::MODE_EXEC;
         objects::MODE_EXEC
     } else {
         objects::MODE_FILE
