@@ -1,5 +1,5 @@
 use crate::core::models::repository::Repository;
-use crate::core::models::objects::{SwitchResult, HeadState, SwitchPlan};
+use crate::core::models::objects::{SwitchResult, HeadState, HeadReference, SwitchPlan};
 use crate::core::resolve::{resolve_target, ResolvedTarget};
 use crate::core::refs::{self as core_refs};
 use crate::core::tree::get_all_files_in_tree;
@@ -85,17 +85,16 @@ pub fn switch_to_target(
         ResolvedTarget::Commit(hash) => utils::hash::hash_to_hex(hash),
     };
 
-    let action = format!(r#"["switch", "{}"]"#, target_display);
+    let from_display = match &previous_head {
+        HeadState::Branch(name, _) => name.clone(),
+        HeadState::Detached(hash) => utils::hash::hash_to_hex(hash),
+    };
+
+    // Reflog update
+    let action = format!("checkout: moving from {} to {}", from_display, target_display);
+    // Checkout only updates HEAD's reflog, not the branch's
+    db::reflog::insert_reflog(&tx, "HEAD", current_commit_opt.as_ref(), Some(&target_commit), &action)?;
     
-    db::reflog::insert_reflog(
-        &tx,
-        "HEAD",
-        current_commit_opt.as_ref(),
-        Some(&target_commit),
-        &action,
-    )?;
-    
-    // Clear and rebuild staging area to match the target commit
     db::staging::clear_staging(&tx)?;
     update_staging_from_tree(&tx, target_tree)?;
     
@@ -143,15 +142,14 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
     // Switch HEAD to new branch
     core_refs::update_head_to_branch(&tx, branch_name)?;
     
-    // Log to reflog
-    let action = format!(r#"["switch", "-c", "{}"]"#, branch_name);
-    db::reflog::insert_reflog(
-        &tx,
-        "HEAD",
-        Some(&current_commit),
-        Some(&current_commit), // Moving from commit X to commit X (just changing ref)
-        &action,
-    )?;
+    // Reflog update
+    let from_display = match &previous_head {
+        HeadState::Branch(name, _) => name.clone(),
+        HeadState::Detached(hash) => utils::hash::hash_to_hex(hash),
+    };
+    let action = format!("checkout: moving from {} to {}", from_display, branch_name);
+    
+    db::reflog::insert_reflog(&tx, "HEAD", Some(&current_commit), Some(&current_commit), &action)?;
     
     tx.commit()
         .map_err(|e| ReviusError::Db(format!("Failed to commit transaction: {}", e)))?;
@@ -167,13 +165,13 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
 
 /// Helper to get the full HeadState (including hash)
 pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u8; 32]>), ReviusError> {
-    // We use core::refs to parse the meta value, but we need to enrich it with the hash
-    // Note: core_refs::HeadState is a different enum (simple) than objects::HeadState (rich)
+    // core::refs now returns HeadReference (Simple state)
     let simple_state = core_refs::get_head_state(conn)?;
     
     match simple_state {
-        core_refs::HeadState::Branch(name) => {
-            let ref_path = format!("refs/heads/{}", name);
+        HeadReference::Branch(ref_path) => {
+            // Convert to rich HeadState
+            let name = ref_path.strip_prefix("refs/heads/").unwrap_or(&ref_path).to_string();
             let hash = db::refs::get_ref(conn, &ref_path)?;
             
             if let Some(h) = hash {
@@ -183,7 +181,7 @@ pub fn get_current_head_state(conn: &Connection) -> Result<(HeadState, Option<[u
                 Ok((HeadState::Branch(name, [0; 32]), None))
             }
         }
-        core_refs::HeadState::Detached(hash) => {
+        HeadReference::Detached(hash) => {
             Ok((HeadState::Detached(hash), Some(hash)))
         }
     }
@@ -297,6 +295,12 @@ pub fn apply_workspace_changes(
         if fs::paths::path_exists(&abs_path) {
             fs::io::delete_file(&abs_path)
                 .map_err(|e| ReviusError::Io(abs_path.clone(), e))?;
+
+            // Clean up empty directories
+            if let Some(parent) = abs_path.parent() {
+                 // We ignore errors here  if dir is not empty
+                 let _ = std::fs::remove_dir(parent);
+            }
         }
     }
     

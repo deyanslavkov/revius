@@ -1,3 +1,4 @@
+use crate::core::models::objects;
 use std::fs;
 use std::io;
 use std::path::Path;
@@ -22,11 +23,16 @@ pub fn delete_file(path: &Path) -> io::Result<()> {
     fs::remove_file(path)
 }
 
+// Recursive folder delete
+pub fn remove_dir_all(path: &Path) -> io::Result<()> {
+    fs::remove_dir_all(path)
+}
+
 pub fn get_file_modified_time(path: &Path) -> io::Result<i64> {
     let metadata = fs::metadata(path)?;
     let mtime = metadata.modified()?;
     let duration = mtime.duration_since(std::time::UNIX_EPOCH)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+        .map_err(io::Error::other)?;
     Ok(duration.as_secs() as i64)
 }
 
@@ -40,16 +46,18 @@ pub fn get_file_mode(path: &Path) -> io::Result<u32> {
     use std::os::unix::fs::PermissionsExt;
     let metadata = fs::metadata(path)?;
     let permissions = metadata.permissions();
+    // 0o111 checks for execution bit on user, group, or other
     Ok(if permissions.mode() & 0o111 != 0 {
-        0o100755
+        use crate::core::models::objects::MODE_EXEC;
+        objects::MODE_EXEC
     } else {
-        0o100644
+        objects::MODE_FILE
     })
 }
 
 #[cfg(not(unix))]
 pub fn get_file_mode(_: &Path) -> io::Result<u32> {
-    Ok(0o100644)
+    Ok(objects::MODE_FILE)
 }
 
 #[cfg(unix)]
@@ -69,6 +77,7 @@ pub fn set_executable(path: &Path) -> io::Result<()> {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
+        // 0o755 is standard rwxr-xr-x
         let permissions = fs::Permissions::from_mode(0o755);
         fs::set_permissions(path, permissions)?;
     }

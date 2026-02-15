@@ -26,6 +26,9 @@ pub enum Commands {
     #[command(about = "Show commit history")]
     Log(LogArgs),
 
+    #[command(about = "Manage reflog information")]
+    Reflog(ReflogArgs),
+
     #[command(about = "List, create, rename, or delete branches")]
     Branch(BranchArgs),
 
@@ -43,6 +46,9 @@ pub enum Commands {
 
     #[command(about = "Cleanup unnecessary files and optimize the local repository")]
     Gc(GcArgs),
+
+    #[command(about = "Get and set repository or global options")]
+    Config(ConfigArgs),
 }
 
 #[derive(Parser)]
@@ -65,7 +71,7 @@ pub struct CommitArgs {
 
 #[derive(Parser)]
 pub struct StatusArgs {
-    // Currently no arguments, but can add --short, --verbose, etc. later
+    // Currently no arguments
 }
 
 #[derive(Parser)]
@@ -81,6 +87,15 @@ pub struct LogArgs {
     
     #[arg(long, help = "Show only the first parent in merge commits")]
     pub first_parent: bool,
+}
+
+#[derive(Parser)]
+pub struct ReflogArgs {
+    #[arg(help = "The ref to show log for. If omitted, shows all reflog entries.")]
+    pub ref_name: Option<String>,
+
+    #[arg(short = 'n', long, help = "Limit the number of entries")]
+    pub limit: Option<usize>,
 }
 
 #[derive(Parser)]
@@ -153,4 +168,16 @@ pub struct RestoreArgs {
 pub struct GcArgs {
     #[arg(long, help = "Do not delete anything, just show what would be deleted")]
     pub dry_run: bool,
+}
+
+#[derive(Parser)]
+pub struct ConfigArgs {
+    #[arg(help = "Configuration key (e.g. user.name, core.compression)")]
+    pub key: Option<String>,
+
+    #[arg(help = "Configuration value")]
+    pub value: Option<String>,
+
+    #[arg(long, num_args = 2, value_names = ["NAME", "EMAIL"], help = "Shortcut to set user name and email globally", conflicts_with_all = ["key", "value"])]
+    pub user: Option<Vec<String>>,
 }

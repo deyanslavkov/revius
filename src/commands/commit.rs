@@ -1,6 +1,7 @@
 use crate::cli::args::CommitArgs;
 use crate::cli::ui;
 use crate::core;
+use crate::core::models::objects::HeadReference;
 use crate::error::ReviusError;
 use crate::core::refs;
 use crate::fs::paths;
@@ -25,7 +26,7 @@ pub fn run(args: CommitArgs) -> Result<(), ReviusError> {
 
     let (commit_hash, files_changed) = core::commit::create_commit(&repo, &args.message)?;
 
-    if let refs::HeadState::Detached(commit_hash) = &head_state {
+    if let HeadReference::Detached(commit_hash) = &head_state {
         ui::print_detached_head_warning(commit_hash);
     }
 

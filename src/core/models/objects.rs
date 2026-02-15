@@ -20,12 +20,17 @@ pub struct FileInfo {
     pub recipe: Vec<u8>,
 }
 
+pub const MODE_DIR: u32 = 0o040000;
+pub const MODE_FILE: u32 = 0o100644;
+pub const MODE_EXEC: u32 = 0o100755;
+
 #[derive(Debug, Clone)]
 pub struct StagedFile {
     pub path: String,
     pub file_hash: [u8; 32],
     pub mode: u32,
     pub size: u64,
+    pub modified_at: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -94,6 +99,16 @@ pub struct LogOptions {
     pub first_parent: bool,
 }
 
+#[derive(Debug)]
+pub struct ReflogEntry {
+    pub id: i64,
+    pub ref_path: String,
+    pub old_hash: Option<[u8; 32]>,
+    pub new_hash: Option<[u8; 32]>,
+    pub action: String,
+    pub timestamp: i64,
+}
+
 #[derive(Debug, Clone)]
 pub struct CommitInfo {
     pub hash: [u8; 32],
@@ -115,10 +130,20 @@ pub struct SwitchResult {
     pub files_deleted: usize,
 }
 
+/// Represents the resolved state of HEAD, including the branch name (if any) and the commit hash.
+/// Used for UI display and high-level logic (e.g., switch results).
 #[derive(Debug, Clone)]
 pub enum HeadState {
-    Branch(String, [u8; 32]),
+    Branch(String, [u8; 32]), // (short_name, commit_hash)
     Detached([u8; 32]),
+}
+
+/// Represents the raw value stored in HEAD (either a ref path or a commit hash).
+/// Used for internal low-level reference handling.
+#[derive(Debug, Clone, PartialEq)]
+pub enum HeadReference {
+    Branch(String),  // e.g., "refs/heads/main"
+    Detached([u8; 32]),  // commit hash
 }
 
 #[derive(Debug)]

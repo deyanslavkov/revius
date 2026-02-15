@@ -1,5 +1,5 @@
 pub fn parse_recipe(recipe: &[u8]) -> Result<Vec<[u8; 32]>, String> {
-    if recipe.len() % 32 != 0 {
+    if !recipe.len().is_multiple_of(32) {
         return Err(format!("Invalid recipe length: {} (not multiple of 32)", recipe.len()));
     }
     

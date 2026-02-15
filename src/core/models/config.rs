@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct RepoConfig {
     #[serde(default)]
     pub core: CoreConfig,
@@ -44,13 +45,6 @@ impl Default for CoreConfig {
     }
 }
 
-impl Default for RepoConfig {
-    fn default() -> Self {
-        Self {
-            core: CoreConfig::default(),
-        }
-    }
-}
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct UserConfig {
@@ -59,6 +53,7 @@ pub struct UserConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct UserInfo {
     #[serde(default)]
     pub name: Option<String>,
@@ -67,14 +62,6 @@ pub struct UserInfo {
     pub email: Option<String>,
 }
 
-impl Default for UserInfo {
-    fn default() -> Self {
-        Self {
-            name: None,
-            email: None,
-        }
-    }
-}
 
 /// The config struct, used in the Repository object
 #[derive(Debug, Clone)]

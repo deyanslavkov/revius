@@ -1,5 +1,6 @@
 use crate::core::models::repository::Repository;
-use crate::core::refs::{get_head_state, update_head_to_branch, HeadState};
+use crate::core::refs::{get_head_state, update_head_to_branch};
+use crate::core::models::objects::HeadReference;
 use crate::db;
 use crate::error::ReviusError;
 use crate::utils::{hash, validation};
@@ -22,23 +23,19 @@ pub fn create_branch_in_tx(
     branch_name: &str,
     commit_hash: &[u8; 32],
 ) -> Result<(), ReviusError> {
-    // Validate branch name
     validation::validate_branch_name(branch_name)?;
 
-    // Verify commit exists
     if !db::commits::commit_exists(tx, commit_hash)? {
         return Err(ReviusError::CommitNotFound(
             hash::hash_to_hex(commit_hash)
         ));
     }
     
-    // Check if branch already exists
     let branch_ref = branch_ref_path(branch_name);
     if db::refs::ref_exists(tx, &branch_ref)? {
         return Err(ReviusError::BranchAlreadyExists(branch_name.to_string()));
     }
     
-    // Create the branch ref
     db::refs::upsert_ref(tx, &branch_ref, 0, commit_hash)?;
     
     Ok(())
@@ -55,7 +52,7 @@ pub fn create_branch(repo: &Repository, branch_name: &str) -> Result<[u8; 32], R
     }
 
     let current_commit = db::refs::resolve_head(&repo.conn)?
-        .ok_or_else(|| ReviusError::NoCommitsYet)?;
+        .ok_or(ReviusError::NoCommitsYet)?;
 
     let tx = repo.conn.unchecked_transaction().map_err(|e| {
         ReviusError::Db(format!("Failed to begin transaction for branch creation: {}", e))
@@ -104,7 +101,7 @@ pub fn rename_branch(repo: &Repository, old_name: Option<&str>, new_name: &str) 
         .ok_or_else(|| ReviusError::BranchNotFound(old_branch_name.clone()))?;
 
     let is_current = get_current_branch_name(repo)?
-        .map_or(false, |name| name == old_branch_name);
+        .is_some_and(|name| name == old_branch_name);
 
     let tx = repo.conn.unchecked_transaction().map_err(|e| {
         ReviusError::Db(format!("Failed to begin transaction for branch rename: {}", e))
@@ -131,26 +128,43 @@ pub fn rename_branch(repo: &Repository, old_name: Option<&str>, new_name: &str) 
 }
 
 /// Delete a branch with safety checks (can't delete current, can't delete if unmerged). Returns the commit hash where the branch pointed
-pub fn delete_branch(repo: &Repository, branch_name: &str, _force: bool) -> Result<[u8; 32], ReviusError> {
+pub fn delete_branch(repo: &Repository, branch_name: &str, force: bool) -> Result<[u8; 32], ReviusError> {
     let ref_path = branch_ref_path(branch_name);
 
     if !db::refs::ref_exists(&repo.conn, &ref_path)? {
         return Err(ReviusError::BranchNotFound(branch_name.to_string()));
     }
 
-    if let Some(current) = get_current_branch_name(repo)? {
-        if current == branch_name {
+    if let Some(current) = get_current_branch_name(repo)?
+        && current == branch_name {
             return Err(ReviusError::CannotDeleteCurrentBranch(
                 branch_name.to_string(),
             ));
         }
-    }
 
     let commit_hash = db::refs::get_ref(&repo.conn, &ref_path)?
         .ok_or_else(|| ReviusError::BranchNotFound(branch_name.to_string()))?;
 
-    // TODO: If not force, check if branch is merged
-    // For now, we'll skip the merge check
+    // Check if merged (Safety)
+    if !force {
+        // Resolve HEAD (should exist if we have branches)
+        let head_commit = db::refs::resolve_head(&repo.conn)?
+             .ok_or(ReviusError::NoCommitsYet)?;
+
+        // If the branch tip is an ancestor of HEAD, it is fully merged.
+        // We reuse the merge-base logic.
+        match crate::core::merge::find_merge_base(&repo.conn, head_commit, commit_hash)? {
+            Some(base) if base == commit_hash => {
+                // Fully merged, allow delete
+            },
+            _ => {
+                return Err(ReviusError::Usage(format!(
+                    "The branch '{}' is not fully merged. If you are sure you want to delete it, run 'rvs branch -D {}'.",
+                    branch_name, branch_name
+                )));
+            }
+        }
+    }
 
     let tx = repo.conn.unchecked_transaction().map_err(|e| {
         ReviusError::Db(format!("Failed to begin transaction for branch deletion: {}", e))
@@ -183,7 +197,7 @@ pub fn list_branches(repo: &Repository) -> Result<Vec<(String, [u8; 32], bool)>,
     let result = branches
         .into_iter()
         .map(|(name, hash)| {
-            let is_current = current_branch.as_ref().map_or(false, |c| c == &name);
+            let is_current = current_branch.as_ref() == Some(&name);
             (name, hash, is_current)
         })
         .collect();
@@ -194,7 +208,7 @@ pub fn list_branches(repo: &Repository) -> Result<Vec<(String, [u8; 32], bool)>,
 /// Get the current branch name (if on a branch). Returns None if in detached HEAD
 pub fn get_current_branch_name(repo: &Repository) -> Result<Option<String>, ReviusError> {
     match get_head_state(&repo.conn)? {
-        HeadState::Branch(ref_path) => Ok(Some(extract_branch_name(&ref_path)?)),
-        HeadState::Detached(_) => Ok(None),
+        HeadReference::Branch(ref_path) => Ok(Some(extract_branch_name(&ref_path)?)),
+        HeadReference::Detached(_) => Ok(None),
     }
 }

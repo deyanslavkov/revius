@@ -1,7 +1,7 @@
 use colored::Colorize;
 use std::path::Path;
 use crate::utils;
-use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, HeadState};
+use crate::core::models::objects::{StatusInfo, CommitInfo, LogOptions, ReflogEntry, HeadState};
 use crate::utils::hash::hash_to_short_hex;
 use crate::utils::{hash, time};
 use crate::core::merge::{ConflictType, MergeConflict};
@@ -78,7 +78,7 @@ pub fn print_no_user_configured() {
 }
 
 pub fn print_detached_head_warning(commit_hash: &[u8; 32]) {
-    let short_hash = utils::hash::hash_to_short_hex(&commit_hash);
+    let short_hash = utils::hash::hash_to_short_hex(commit_hash);
 
     eprintln!("Warning: You are in a detached HEAD state");
     eprintln!();
@@ -176,6 +176,36 @@ pub fn print_log(commits: &[CommitInfo], options: &LogOptions) {
     }
 }
 
+pub fn print_reflog(entries: &[ReflogEntry]) {
+    if entries.is_empty() {
+        println!("Reflog is empty.");
+        return;
+    }
+
+    for (i, entry) in entries.iter().enumerate() {
+        let old_short = if let Some(h) = entry.old_hash {
+            hash::hash_to_short_hex(&h)
+        } else {
+            "00000000".to_string()
+        };
+
+        let new_short = if let Some(h) = entry.new_hash {
+            hash::hash_to_short_hex(&h)
+        } else {
+            "00000000".to_string()
+        };
+
+        println!(
+            "{} {} ({} -> {}): {}",
+            entry.ref_path.cyan(),
+            format!("[{}]", i).dimmed(),
+            old_short.red(),
+            new_short.green(),
+            entry.action
+        );
+    }
+}
+
 pub fn print_commit_detailed(commit: &CommitInfo) {
     print!("commit {}", hash::hash_to_hex(&commit.hash));
 
@@ -219,7 +249,6 @@ pub fn print_commit_detailed(commit: &CommitInfo) {
 
 pub fn print_commit_oneline(commit: &CommitInfo) {
     let short_hash = hash::hash_to_short_hex(&commit.hash);
-
     let message_first_line = commit.message.lines().next().unwrap_or("");
 
     if !commit.refs.is_empty() {
@@ -232,60 +261,149 @@ pub fn print_commit_oneline(commit: &CommitInfo) {
                 r.to_string()
             }
         }).collect();
-        println!("{} ({}) {}", short_hash, ref_display.join(", "), message_first_line);
+        println!("{} ({}) {}", short_hash.yellow(), ref_display.join(", ").cyan(), message_first_line);
     } else {
-        println!("{} {}", short_hash, message_first_line);
+        println!("{} {}", short_hash.yellow(), message_first_line);
     }
 }
 
-/// For now implements a simple linear graph. Future enhancement: proper graph with branches
+/// A "true" ASCII graph renderer.
+/// Tracks lanes of parent commits to draw connections.
 pub fn print_commit_graph(commits: &[CommitInfo], oneline: bool) {
-    for (i, commit) in commits.iter().enumerate() {
+    // Tracks active parent hashes in each visual lane.
+    // None means the lane is empty/reserved (rare in simple view).
+    let mut lanes: Vec<[u8; 32]> = Vec::new();
+    
+    // Simple color cycling for graph lanes
+    let colors = ["red", "green", "yellow", "blue", "magenta", "cyan"];
+
+    for commit in commits {
+        // 1. Find the lane containing this commit (if any)
+        // If the commit is not in any lane (e.g., a branch tip we just encountered), 
+        // we assign it a new lane (append).
+        let lane_idx = lanes.iter().position(|&h| h == commit.hash).unwrap_or(lanes.len());
+
+        // If it's a new tip, ensure we expand lanes
+        if lane_idx == lanes.len() {
+            lanes.push(commit.hash);
+        }
+
+        // 2. Prepare the node line (the "*")
+        let mut graph_str = String::new();
+        for (i, _hash) in lanes.iter().enumerate() {
+            let color = colors[i % colors.len()];
+            if i == lane_idx {
+                graph_str.push_str(&"* ".color(color).to_string());
+            } else {
+                graph_str.push_str(&"| ".color(color).to_string());
+            }
+        }
+
+        // 3. Print the commit info
         let short_hash = hash::hash_to_short_hex(&commit.hash);
-        let message_first_line = commit.message.lines().next().unwrap_or("");
-
-        let graph_char = if i == 0 { "*" } else { "*" };
-
-        let refs_display = if !commit.refs.is_empty() {
-            let ref_names: Vec<String> = commit.refs.iter().map(|r| {
+        let msg = commit.message.lines().next().unwrap_or("");
+        let refs = if !commit.refs.is_empty() {
+             let names: Vec<String> = commit.refs.iter().map(|r| {
                 if let Some(branch) = r.strip_prefix("refs/heads/") {
                     branch.to_string()
-                } else if let Some(tag) = r.strip_prefix("refs/tags/") {
-                    tag.to_string()
                 } else {
                     r.to_string()
                 }
             }).collect();
-            format!(" ({})", ref_names.join(", "))
+            format!(" ({})", names.join(", ").cyan())
         } else {
-            String::new()
+            "".to_string()
         };
 
         if oneline {
-            println!("{} {}{} {}", graph_char, short_hash, refs_display, message_first_line);
+            println!("{}{} {}{}", graph_str, short_hash.yellow(), msg, refs);
         } else {
-            println!("{} commit {}{}", graph_char, hash::hash_to_hex(&commit.hash), refs_display);
-            if let (Some(parent), Some(merge_parent)) = (commit.parent_hash, commit.merge_parent_hash) {
-                println!("|\\  Merge: {} {}", 
-                    hash::hash_to_short_hex(&parent),
-                    hash::hash_to_short_hex(&merge_parent)
-                );
+            println!("{}{} {}{}", graph_str, "commit".yellow(), short_hash, refs);
+            // Print metadata with lane pipes
+            let mut prefix = String::new();
+            for (i, _) in lanes.iter().enumerate() {
+                let color = colors[i % colors.len()];
+                prefix.push_str(&"| ".color(color).to_string());
             }
-            println!("| Author: {} <{}>", commit.author_name, commit.author_email);
-            println!("| Date:   {}", time::format_timestamp(commit.timestamp));
-            println!("|");
-            for line in commit.message.lines() {
-                println!("|     {}", line);
-            }
-            println!("|");
+            println!("{}Author: {} <{}>", prefix, commit.author_name, commit.author_email);
+            println!("{}Date:   {}", prefix, time::format_timestamp(commit.timestamp));
+            println!("{}", prefix); // Empty line
+            println!("{}{}", prefix, msg); // Message (assumes 1 line for simplicity, or iterate lines)
+            println!("{}", prefix); // Padding
         }
 
-        if i < commits.len() - 1 && !oneline {
-            if commits[i + 1].merge_parent_hash.is_some() {
-                println!("|\\");
-            } else {
-                println!("|");
+        // 4. Update lanes for next iteration (the connections)
+        // Logic:
+        // - The current commit is consumed.
+        // - Its First Parent replaces it in the current lane.
+        // - Its Second Parent (merge) is inserted/appended.
+        
+        // We capture parents before modifying lanes
+        let p1 = commit.parent_hash;
+        let p2 = commit.merge_parent_hash;
+
+        // Visual connector logic (Simplified for robustness):
+        // If we split (merge commit): Draw `| \` on next line?
+        // If we merge (lanes converge): Draw `| /` ?
+        // For now, we update the state. The "jump" in ASCII often suffices, 
+        // but let's try to print a connector row if we have a split (2 parents).
+        
+        if let Some(parent1) = p1 {
+            // Replace current with parent 1
+            lanes[lane_idx] = parent1;
+            
+            if let Some(parent2) = p2 {
+                // Merge Commit: We have a second parent.
+                // We need to insert a new lane for parent2.
+                // Standard git behavior: insert it immediately after current lane.
+                lanes.insert(lane_idx + 1, parent2);
+                
+                // Draw connector: `| \`
+                let mut conn_str = String::new();
+                for (i, _) in lanes.iter().enumerate() {
+                    let color = colors[i % colors.len()];
+                    if i == lane_idx {
+                         conn_str.push_str(&"| ".color(color).to_string()); 
+                    } else if i == lane_idx + 1 {
+                         conn_str.push_str(&"\\ ".color(color).to_string());
+                    } else {
+                         conn_str.push_str(&"| ".color(color).to_string());
+                    }
+                }
+                println!("{}", conn_str);
             }
+        } else {
+            // No parents (Root), remove the lane
+            lanes.remove(lane_idx);
+            
+            // Draw connector: `|` closing up (shifted left)
+            // Actually, just leaving it empty next loop handles it visually.
+        }
+        
+        // Handling "Lane Merging": 
+        // If multiple lanes now point to the same parent hash (branches rejoining), 
+        // we should deduplicate them.
+        // E.g. Lane 0: HashA, Lane 1: HashA.
+        // Real `git graph` draws a `|/` here.
+        // Simplifying: We just iterate and see if duplicates exist.
+        // If `lanes` has duplicates, we keep the leftmost one and remove the others.
+        
+        let mut dedup_lanes = Vec::new();
+        let mut seen = std::collections::HashSet::new();
+        let mut removal_indices = Vec::new();
+
+        for (i, hash) in lanes.iter().enumerate() {
+            if !seen.insert(*hash) {
+                removal_indices.push(i);
+            } else {
+                dedup_lanes.push(*hash);
+            }
+        }
+        
+        if !removal_indices.is_empty() {
+             // If we removed lanes, we technically should draw a connector `|/`.
+             // But strictly updating the lanes works for "Good enough" ASCII.
+             lanes = dedup_lanes;
         }
     }
 }
@@ -299,7 +417,7 @@ pub fn print_branch_list(branches: &[(String, [u8; 32], bool)]) {
 
     for (name, _hash, is_current) in branches {
         if *is_current {
-            println!("* {}", name);
+            println!("* {}", name.green());
         } else {
             println!("  {}", name);
         }
@@ -459,4 +577,23 @@ pub fn print_gc_stats(stats: &GcStats) {
     if stats.commits_deleted == 0 && stats.trees_deleted == 0 && stats.files_deleted == 0 && stats.blobs_deleted == 0 {
         println!("{}", "The repository is already optimized.".green());
     }
+}
+
+pub fn print_config_set_success(key: &str, value: &str, scope: &str) {
+    println!(
+        "{} Set {} to '{}' ({})",
+        "✓".green().bold(),
+        key.bold(),
+        value,
+        scope
+    );
+}
+
+pub fn print_user_setup_success(name: &str, email: &str) {
+    println!(
+        "{} Configured global user identity:\n  Name:  {}\n  Email: {}",
+        "✓".green().bold(),
+        name.bold(),
+        email.bold()
+    );
 }

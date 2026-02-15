@@ -108,6 +108,98 @@ pub fn get_tree_entries(
     Ok(result)
 }
 
+/// Recursively fetches all files in a tree using a CTE.
+/// Returns Vec<(path, hash, mode)>
+pub fn get_recursive_files(
+    conn: &Connection,
+    root_hash: &[u8; 32],
+) -> Result<Vec<(String, [u8; 32], u32)>, ReviusError> {
+    let mut stmt = conn.prepare_cached(
+        "WITH RECURSIVE tree_hierarchy(path, object_hash, mode, is_dir) AS (
+            SELECT name, object_hash, mode, is_dir
+            FROM Trees
+            WHERE parent_hash = ?1
+            
+            UNION ALL
+            
+            SELECT th.path || '/' || t.name, t.object_hash, t.mode, t.is_dir
+            FROM Trees t
+            JOIN tree_hierarchy th ON t.parent_hash = th.object_hash
+            WHERE th.is_dir = 1
+        )
+        SELECT path, object_hash, mode FROM tree_hierarchy WHERE is_dir = 0;"
+    ).map_err(|e| ReviusError::Db(format!("Failed to prepare recursive tree query: {}", e)))?;
+
+    let rows = stmt.query_map([root_hash.as_slice()], |row| {
+        let path: String = row.get(0)?;
+        let hash_vec: Vec<u8> = row.get(1)?;
+        let mode: u32 = row.get(2)?;
+        
+        let hash = vec_to_hash(&hash_vec).map_err(|e| {
+             rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+                 std::io::ErrorKind::InvalidData, e
+             )))
+        })?;
+
+        Ok((path, hash, mode))
+    }).map_err(|e| ReviusError::Db(format!("Failed to execute recursive tree query: {}", e)))?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| ReviusError::Db(format!("Error reading recursive tree row: {}", e)))?);
+    }
+
+    Ok(result)
+}
+
+/// Recursively fetches files AND joins with Files table to get size in one pass.
+/// Returns Vec<(path, hash, mode, size)>
+pub fn get_recursive_files_with_size(
+    conn: &Connection,
+    root_hash: &[u8; 32],
+) -> Result<Vec<(String, [u8; 32], u32, u64)>, ReviusError> {
+    let mut stmt = conn.prepare_cached(
+        "WITH RECURSIVE tree_hierarchy(path, object_hash, mode, is_dir) AS (
+            SELECT name, object_hash, mode, is_dir
+            FROM Trees
+            WHERE parent_hash = ?1
+            
+            UNION ALL
+            
+            SELECT th.path || '/' || t.name, t.object_hash, t.mode, t.is_dir
+            FROM Trees t
+            JOIN tree_hierarchy th ON t.parent_hash = th.object_hash
+            WHERE th.is_dir = 1
+        )
+        SELECT th.path, th.object_hash, th.mode, f.size
+        FROM tree_hierarchy th
+        JOIN Files f ON th.object_hash = f.hash
+        WHERE th.is_dir = 0;"
+    ).map_err(|e| ReviusError::Db(format!("Failed to prepare recursive tree size query: {}", e)))?;
+
+    let rows = stmt.query_map([root_hash.as_slice()], |row| {
+        let path: String = row.get(0)?;
+        let hash_vec: Vec<u8> = row.get(1)?;
+        let mode: u32 = row.get(2)?;
+        let size: i64 = row.get(3)?;
+        
+        let hash = vec_to_hash(&hash_vec).map_err(|e| {
+             rusqlite::Error::ToSqlConversionFailure(Box::new(std::io::Error::new(
+                 std::io::ErrorKind::InvalidData, e
+             )))
+        })?;
+
+        Ok((path, hash, mode, size as u64))
+    }).map_err(|e| ReviusError::Db(format!("Failed to execute recursive tree size query: {}", e)))?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| ReviusError::Db(format!("Error reading recursive tree size row: {}", e)))?);
+    }
+
+    Ok(result)
+}
+
 /// Helper to get file size for staging reconstruction
 pub fn get_file_size(conn: &Connection, file_hash: &[u8; 32]) -> Result<u64, ReviusError> {
     // Uses a simple query, cached by SQLite internally if frequent

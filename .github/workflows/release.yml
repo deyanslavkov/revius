@@ -1,0 +1,56 @@
+name: Build for Release
+
+on:
+  workflow_dispatch: # Allows manual run
+  push:
+    tags:
+      - 'v*' # Automatic run when a tag is created
+
+env:
+  BIN_NAME: rvs
+
+jobs:
+  build:
+    name: Build - ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            artifact_name: rvs-linux
+            asset_name: rvs-linux
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact_name: rvs-windows
+            asset_name: rvs-windows.exe
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            artifact_name: rvs-macos
+            asset_name: rvs-macos
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Install Rust
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Build
+      run: cargo build --release --verbose
+
+    # Rename and package file
+    - name: Prepare Artifact (Unix)
+      if: matrix.os != 'windows-latest'
+      run: |
+        mv target/release/${{ env.BIN_NAME }} ${{ matrix.asset_name }}
+
+    - name: Prepare Artifact (Windows)
+      if: matrix.os == 'windows-latest'
+      run: |
+        move target/release/${{ env.BIN_NAME }}.exe ${{ matrix.asset_name }}
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: ${{ matrix.artifact_name }}
+        path: ${{ matrix.asset_name }}

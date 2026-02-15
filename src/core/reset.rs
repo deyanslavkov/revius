@@ -1,8 +1,8 @@
 use crate::core::models::repository::Repository;
-use crate::core::models::objects::HeadState;
 use crate::core::resolve::resolve_target;
 use crate::core::refs;
 use crate::core::switch;
+use crate::core::reflog;
 use crate::db;
 use crate::error::ReviusError;
 use crate::utils;
@@ -100,30 +100,15 @@ fn resolve_and_get_hash(conn: &Transaction, target: &str) -> Result<[u8; 32], Re
     Ok(resolved.hash())
 }
 
-/// Moves the HEAD or branch pointer. Adds a reflog entry.
-fn move_head(tx: &Transaction, target_hash: [u8; 32], mode_str: &str) -> Result<(), ReviusError> {
-    // Get current state for reflog
-    // This returns core::models::objects::HeadState
-    let (head_state, current_hash_opt) = switch::get_current_head_state(tx)?;
-    
-    // Update the pointer
-    // update_head handles both "ref: refs/heads/..." and detached hashes automatically
+fn move_head(tx: &Transaction, target_hash: [u8; 32], _mode_str: &str) -> Result<(), ReviusError> {
+    // We capture the current state *before* updating HEAD to log the transition accurately.
+    let (_, current_hash_opt) = switch::get_current_head_state(tx)?;
+
     refs::update_head(tx, &target_hash)?;
-    
-    let ref_path = match head_state {
-        HeadState::Branch(ref name, _) => format!("refs/heads/{}", name),
-        HeadState::Detached(_) => "HEAD".to_string(),
-    };
-    
-    let action_json = format!(r#"["reset", "--{}", "{}"]"#, mode_str, utils::hash::hash_to_hex(&target_hash));
-    
-    db::reflog::insert_reflog(
-        tx,
-        &ref_path,
-        current_hash_opt.as_ref(),
-        Some(&target_hash),
-        &action_json
-    )?;
-    
+
+    // Reflog update
+    let action = format!("reset: moving to {}", utils::hash::hash_to_short_hex(&target_hash));
+    reflog::log_head_update(tx, current_hash_opt.as_ref(), &target_hash, &action)?;
+
     Ok(())
 }

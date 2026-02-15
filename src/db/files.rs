@@ -9,7 +9,7 @@ pub fn insert_file(tx: &Transaction, hash: &[u8; 32], recipe: &[u8], chunk_count
     )
     .map_err(|e| ReviusError::Db(format!(
         "Failed to insert file (hash={}): {}",
-        utils::hash::hash_to_short_hex(&hash),
+        utils::hash::hash_to_short_hex(hash),
         e
     )))?;
     
@@ -24,7 +24,7 @@ pub fn file_exists(tx: &Transaction, hash: &[u8; 32]) -> Result<bool, ReviusErro
     )
     .map_err(|e| ReviusError::Db(format!(
         "Failed to check file existence (hash={}): {}",
-        utils::hash::hash_to_short_hex(&hash),
+        utils::hash::hash_to_short_hex(hash),
         e
     )))?;
     

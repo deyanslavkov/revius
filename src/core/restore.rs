@@ -157,10 +157,12 @@ pub fn restore_mixed(repo: &Repository, paths: &[PathBuf], source: &str) -> Resu
 }
 
 fn normalize_patterns(repo: &Repository, paths: &[PathBuf]) -> Result<Vec<String>, ReviusError> {
+    let current_dir = fs::paths::get_current_dir()?;
     let mut patterns = Vec::new();
+    
     for p in paths {
-        let abs = fs::paths::canonicalize(p)
-            .map_err(|e| ReviusError::Io(p.clone(), e))?;
+        // Use absolutize instead of canonicalize to handle non-existent (deleted) files
+        let abs = fs::paths::absolutize(p, &current_dir);
         let rel = fs::paths::make_repo_relative(&abs, &repo.root)?;
         patterns.push(rel);
     }

@@ -20,6 +20,10 @@ pub fn get_repo_lock_path(repo_root: &Path) -> PathBuf {
     get_rvs_dir(repo_root).join("lock")
 }
 
+pub fn get_repo_merge_head_path(repo_root: &Path) -> PathBuf {
+    get_rvs_dir(repo_root).join("MERGE_HEAD")
+}
+
 pub fn get_repo_config_path(repo_root: &Path) -> PathBuf {
     repo_root.join(".rvsconfig.toml")
 }
@@ -43,6 +47,31 @@ pub fn get_user_config_path() -> Option<PathBuf> {
 pub fn canonicalize(path: &Path) -> io::Result<PathBuf> {
     let canonical = fs::canonicalize(path)?;
     Ok(clean_path_display(&canonical))
+}
+
+/// Make a path absolute and normalize components (., ..) purely lexically.
+/// Does NOT require the path to exist.
+pub fn absolutize(path: &Path, base: &Path) -> PathBuf {
+    let abs_path = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        base.join(path)
+    };
+
+    let components = abs_path.components();
+    let mut stack = Vec::new();
+
+    for component in components {
+        match component {
+            std::path::Component::CurDir => {},
+            std::path::Component::ParentDir => {
+                stack.pop();
+            },
+            c => stack.push(c),
+        }
+    }
+
+    stack.iter().collect()
 }
 
 /// Removes Windows UNC prefix

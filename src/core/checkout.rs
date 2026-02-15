@@ -1,3 +1,4 @@
+use crate::core::models::objects::MODE_EXEC;
 use crate::db;
 use crate::error::ReviusError;
 use crate::fs;
@@ -17,13 +18,29 @@ pub fn reconstruct_file(
     let blob_hashes = utils::recipe::parse_recipe(&file_info.recipe)
         .map_err(|e| ReviusError::Db(format!("Failed to parse recipe: {}", e)))?;
     
-    // Reconstruct content by fetching, decompressing, and concatenating blobs
+    // Reconstruct content by fetching, optionally decompressing, and concatenating blobs
     let mut content = Vec::with_capacity(file_info.size as usize);
     
     for blob_hash in blob_hashes {
-        let compressed_data = db::blobs::get_blob(conn, &blob_hash)?;
-        let decompressed_data = utils::compression::decompress(&compressed_data)?;
-        content.extend_from_slice(&decompressed_data);
+        // Fetch data AND compression mode
+        let (data, compression_algo) = db::blobs::get_blob(conn, &blob_hash)?;
+        
+        let chunk_data = if compression_algo == "none" {
+            // No decompression needed
+            data
+        } else if compression_algo.starts_with("zstd") {
+            // Decompress
+            utils::compression::decompress(&data)?
+        } else {
+            // Unknown algorithm (future proofing)
+            return Err(ReviusError::Db(format!(
+                "Unsupported compression algorithm '{}' for blob {}", 
+                compression_algo, 
+                utils::hash::hash_to_short_hex(&blob_hash)
+            )));
+        };
+
+        content.extend_from_slice(&chunk_data);
     }
     
     // Verify size
@@ -49,19 +66,18 @@ pub fn checkout_file(
     let content = reconstruct_file(conn, file_hash)?;
     
     // Ensure parent directory exists
-    if let Some(parent) = target_path.parent() {
-        if !fs::paths::path_exists(parent) {
+    if let Some(parent) = target_path.parent()
+        && !fs::paths::path_exists(parent) {
             fs::io::create_dir_all(parent)
                 .map_err(|e| ReviusError::Io(parent.to_path_buf(), e))?;
         }
-    }
     
     // Write file
     fs::io::write_binary(target_path, &content)
         .map_err(|e| ReviusError::Io(target_path.to_path_buf(), e))?;
     
-    // Set executable bit if needed (mode 100755)
-    if mode == 100755 {
+    // Set executable bit if needed
+    if mode == MODE_EXEC {
         fs::io::set_executable(target_path)
             .map_err(|e| ReviusError::Io(target_path.to_path_buf(), e))?;
     }

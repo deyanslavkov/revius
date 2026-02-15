@@ -16,18 +16,34 @@ pub enum StageOutcome {
 
 pub fn stage_single_file(tx: &Transaction, repo: &Repository, path: &PathBuf)
 -> Result<(PathBuf, StageOutcome), ReviusError> {
-    let (file_data, file_hash) = content::read_and_hash_file(path)?;
-
     let repo_relative_path = fs::paths::make_repo_relative(path, &repo.root)?;
 
+    // 1. Fetch Metadata (Cheap)
     let mode = fs::io::get_file_mode(path)
         .map_err(|e| ReviusError::Io(path.clone(), e))?;
 
     let mtime = fs::io::get_file_modified_time(path)
         .map_err(|e| ReviusError::Io(path.clone(), e))?;
+    
+    let metadata = std::fs::metadata(path)
+        .map_err(|e| ReviusError::Io(path.clone(), e))?;
+    let size = metadata.len();
 
+    // 2. Check if file is unchanged based on metadata
     let previous_staged = db::staging::get_staged_file(tx, &repo_relative_path)?;
 
+    if let Some(ref prev) = previous_staged {
+        // If Size, MTime, and Mode match, we assume it's unchanged.
+        // This avoids reading and hashing the entire file.
+        if prev.size == size && prev.modified_at == mtime && prev.mode == mode {
+            return Ok((path.clone(), StageOutcome::Unchanged));
+        }
+    }
+
+    // 3. Read and Hash (Heavy operation)
+    let (file_data, file_hash) = content::read_and_hash_file(path)?;
+
+    // Double check: content might be identical even if mtime changed
     let is_modified = previous_staged
         .as_ref()
         .map(|prev| prev.file_hash != file_hash)
@@ -35,9 +51,12 @@ pub fn stage_single_file(tx: &Transaction, repo: &Repository, path: &PathBuf)
     let is_new = previous_staged.is_none();
 
     if !is_new && !is_modified {
+        // Update the Staging entry with the new mtime so future checks pass
+        db::staging::upsert_staging(tx, &repo_relative_path, &file_hash, mode, file_data.len() as u64, mtime)?;
         return Ok((path.clone(), StageOutcome::Unchanged));
     }
 
+    // 4. Store Content and Update Staging
     let blob_count = content::store_file_content(tx, path, &file_hash, &file_data, repo)?;
 
     db::staging::upsert_staging(tx, &repo_relative_path, &file_hash, mode, file_data.len() as u64, mtime)?;
