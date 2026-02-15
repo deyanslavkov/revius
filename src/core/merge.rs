@@ -236,10 +236,14 @@ fn perform_three_way_merge(
         // Write MERGE_HEAD to signal we are in a merge state
         let merge_head_path = repo.root.join(".rvs").join("MERGE_HEAD");
         fs::io::write_binary(&merge_head_path, hex::encode(their_commit).as_bytes())
-             .map_err(|e| ReviusError::Io(merge_head_path, e))?;
+             .map_err(|e| ReviusError::Io(merge_head_path.clone(), e))?; // Clone path for error
 
         // Commit the transaction to save Staging changes (partial merge)
-        tx.commit().map_err(|e| ReviusError::Db(format!("Failed to commit conflict state: {}", e)))?;
+        if let Err(e) = tx.commit() {
+             // If commit fails, clean up MERGE_HEAD
+             let _ = fs::io::delete_file(&merge_head_path);
+             return Err(ReviusError::Db(format!("Failed to commit conflict state: {}", e)));
+        }
         
         return Ok(MergeResult::Conflicts(conflict_list));
     }
