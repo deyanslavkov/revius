@@ -125,21 +125,10 @@ CREATE TABLE IF NOT EXISTS Reflog (
     ref_path TEXT NOT NULL, -- The ref in question
     old_hash BLOB, -- Old commit hash
     new_hash BLOB, -- New commit hash
-    action TEXT NOT NULL, -- The specific command used: commit/switch/reset, and its parameters, both in a list in a JSON string (like in Audit)
+    action TEXT NOT NULL, -- The specific command used: commit/switch/reset, and its parameters
     timestamp INTEGER DEFAULT (strftime('%s', 'now')),
     CHECK(length(old_hash) = 32),
     CHECK(length(new_hash) = 32)
-);
-
-CREATE TABLE IF NOT EXISTS Audit (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    action TEXT NOT NULL, -- The subcommand used
-    args TEXT, -- The parameters in a list as a JSON string
-    output TEXT, -- The console output
-    exit_code INTEGER, -- 0, 1, 2, 126, 130 -- POSIX codes
-    author_id INTEGER REFERENCES Authors(id),
-    timestamp INTEGER DEFAULT (strftime('%s', 'now')), -- Start time in seconds
-    duration_ms INTEGER -- Execution time in milliseconds (excluding input awaiting)
 );
 ```
 
@@ -251,7 +240,6 @@ src/
         refs.rs
         staging.rs
         reflog.rs
-        audit.rs
         authors.rs
     fs/ -- Handles filesystem operations
         mod.rs

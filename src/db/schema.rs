@@ -13,7 +13,6 @@ pub fn create_all(conn: &Connection) -> Result<(), ReviusError> {
     create_refs_table(conn)?;
     create_staging_table(conn)?;
     create_reflog_table(conn)?;
-    create_audit_table(conn)?;
     Ok(())
 }
 
@@ -189,22 +188,5 @@ fn create_reflog_table(conn: &Connection) -> Result<(), ReviusError> {
         )",
         [],
     ).map_err(|e| ReviusError::Db(format!("Failed to create Reflog table: {}", e)))?;
-    Ok(())
-}
-
-fn create_audit_table(conn: &Connection) -> Result<(), ReviusError> {
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS Audit (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            action TEXT NOT NULL,
-            args TEXT,
-            output TEXT,
-            exit_code INTEGER,
-            author_id INTEGER REFERENCES Authors(id),
-            timestamp INTEGER DEFAULT (strftime('%s', 'now')),
-            duration_ms INTEGER
-        )",
-        [],
-    ).map_err(|e| ReviusError::Db(format!("Failed to create Audit table: {}", e)))?;
     Ok(())
 }
