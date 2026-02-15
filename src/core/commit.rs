@@ -25,7 +25,7 @@ pub fn create_commit(repo: &Repository, message: &str) -> Result<([u8; 32], usiz
     let parent_hash = refs::resolve_head(&tx)?;
 
     // Check for MERGE_HEAD
-    let merge_head_path = repo.root.join(".rvs").join("MERGE_HEAD");
+    let merge_head_path = fs::paths::get_repo_merge_head_path(&repo.root);
     let mut merge_parent_hash: Option<[u8; 32]> = None;
 
     if merge_head_path.exists()

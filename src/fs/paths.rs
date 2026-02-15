@@ -20,6 +20,10 @@ pub fn get_repo_lock_path(repo_root: &Path) -> PathBuf {
     get_rvs_dir(repo_root).join("lock")
 }
 
+pub fn get_repo_merge_head_path(repo_root: &Path) -> PathBuf {
+    get_rvs_dir(repo_root).join("MERGE_HEAD")
+}
+
 pub fn get_repo_config_path(repo_root: &Path) -> PathBuf {
     repo_root.join(".rvsconfig.toml")
 }
