@@ -147,7 +147,7 @@ pub fn handle_create_and_switch(repo: &Repository, branch_name: &str) -> Result<
         HeadState::Branch(name, _) => name.clone(),
         HeadState::Detached(hash) => utils::hash::hash_to_hex(hash),
     };
-    let action = format!("checkout: moving from {} to {}", from_display, branch_name);
+    let action = format!("switch: moving from {} to {}", from_display, branch_name);
     
     db::reflog::insert_reflog(&tx, "HEAD", Some(&current_commit), Some(&current_commit), &action)?;
     
