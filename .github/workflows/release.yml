@@ -28,7 +28,7 @@ jobs:
 
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
@@ -47,7 +47,7 @@ jobs:
 
     # Upload the platform-specific binary as an intermediary artifact
     - name: Upload Artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ${{ matrix.artifact_name }}
         path: ${{ matrix.asset_name }}
@@ -61,10 +61,10 @@ jobs:
       contents: write # Grants the workflow permission to push a release to the repository
     steps:
     - name: Checkout repository
-      uses: actions/checkout@v4
+      uses: actions/checkout@v6
 
     - name: Download all artifacts
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@v7
       with:
         path: dist
         merge-multiple: true # Extracts all 3 downloaded binaries flatly into the 'dist' folder
