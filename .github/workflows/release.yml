@@ -1,56 +1,82 @@
-name: Build for Release
+name: Build and Publish Release
 
 on:
-  workflow_dispatch: # Allows manual run
+  workflow_dispatch: # Allows manual run for testing purposes
   push:
     tags:
-      - 'v*' # Automatic run when a tag is created
+      - 'v*' # Triggers automatically when a version tag is pushed (e.g., v1.0.0)
 
 env:
-  BIN_NAME: rvs
+  BIN_NAME: rvs # The base name of the compiled binary
 
 jobs:
   build:
     name: Build - ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
-      matrix:
+      matrix: # Runs the job in parallel across three distinct operating systems
         include:
           - os: ubuntu-latest
-            target: x86_64-unknown-linux-gnu
             artifact_name: rvs-linux
             asset_name: rvs-linux
           - os: windows-latest
-            target: x86_64-pc-windows-msvc
             artifact_name: rvs-windows
             asset_name: rvs-windows.exe
           - os: macos-latest
-            target: x86_64-apple-darwin
             artifact_name: rvs-macos
             asset_name: rvs-macos
 
     steps:
-    - uses: actions/checkout@v3
+    - name: Checkout repository
+      uses: actions/checkout@v4
 
-    - name: Install Rust
+    - name: Install Rust toolchain
       uses: dtolnay/rust-toolchain@stable
 
-    - name: Build
+    - name: Build binary
       run: cargo build --release --verbose
 
-    # Rename and package file
+    # Rename the output binary to the release-friendly name defined in the matrix
     - name: Prepare Artifact (Unix)
       if: matrix.os != 'windows-latest'
-      run: |
-        mv target/release/${{ env.BIN_NAME }} ${{ matrix.asset_name }}
+      run: mv target/release/${{ env.BIN_NAME }} ${{ matrix.asset_name }}
 
     - name: Prepare Artifact (Windows)
       if: matrix.os == 'windows-latest'
-      run: |
-        move target/release/${{ env.BIN_NAME }}.exe ${{ matrix.asset_name }}
+      run: move target/release/${{ env.BIN_NAME }}.exe ${{ matrix.asset_name }}
 
+    # Upload the platform-specific binary as an intermediary artifact
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: ${{ matrix.artifact_name }}
         path: ${{ matrix.asset_name }}
+
+  publish:
+    name: Create GitHub Release
+    needs: build # Ensures this job only runs after all 3 OS builds succeed
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/') # Safety check: execute only for actual tags
+    permissions:
+      contents: write # Grants the workflow permission to push a release to the repository
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v4
+      with:
+        path: dist
+        merge-multiple: true # Extracts all 3 downloaded binaries flatly into the 'dist' folder
+
+    - name: Publish Release to GitHub
+      uses: softprops/action-gh-release@v2 # The standard community action for GitHub releases
+      with:
+        files: |
+          dist/rvs-linux
+          dist/rvs-windows.exe
+          dist/rvs-macos
+        name: Release ${{ github.ref_name }}
+        generate_release_notes: true # Automatically appends recent commit logs to the release body
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # Built-in GitHub authentication token
